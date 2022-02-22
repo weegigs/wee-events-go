@@ -1,0 +1,29 @@
+package we
+
+import (
+	"reflect"
+	"strings"
+
+	"github.com/iancoleman/strcase"
+)
+
+type Named interface {
+	Name() string
+}
+
+func NameOf(value any) string {
+	if typed, ok := value.(Named); ok == true {
+		return typed.Name()
+	}
+
+	split := strings.Split(reflect.TypeOf(value).String(), ".")
+	segments := make([]string, len(split))
+	for i, segment := range split {
+		segments[i] = strcase.ToKebab(segment)
+	}
+
+	namespace := segments[0]
+	event := strings.Join(segments[1:], "-")
+
+	return namespace + ":" + event
+}

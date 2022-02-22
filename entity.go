@@ -1,14 +1,19 @@
-package es
+package we
 
 type EntityType string
 
 type Entity[T any] struct {
-  Aggregate AggregateId
-  Revision  Revision
-  Type      EntityType
-  State     *T
+	Aggregate AggregateId
+	Revision  Revision
+	Type      EntityType
+	State     *T
 }
 
-func (e *Entity[T]) Initialised() bool {
-  return e.State != nil
+type EntityID struct {
+	Aggregate AggregateId
+	Type      EntityType
+}
+
+func (e *Entity[T]) Initialized() bool {
+	return e.State != nil
 }

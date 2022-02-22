@@ -1,49 +1,27 @@
-package es
+package we
 
 import (
-  "context"
-  "errors"
-  "fmt"
+	"context"
 )
 
-type CommandType string
+type CommandName string
+type Command any
 
-type Command interface {
-  Type() CommandType
+func CommandNameOf(cmd Command) CommandName {
+	return CommandName(NameOf(cmd))
 }
 
-type CommandHandler[T any] func(ctx context.Context, cmd Command, state *Entity[T], publish EventPublisher) error
-
-type compositeHandlerBuilder[T any] struct {
-  handlers map[CommandType]CommandHandler[T]
+type CommandHandler[T any] interface {
+	HandleCommand(ctx context.Context, cmd Command, state *Entity[T], publish EventPublisher) error
 }
 
-func CompositeHandler[T any](handlers ...struct {
-  CommandType
-  CommandHandler[T]
-}) *compositeHandlerBuilder[T] {
-  return &compositeHandlerBuilder[T]{handlers: make(map[CommandType]CommandHandler[T])}
-}
+type CommandHandlerFunction[T any, C any] func(ctx context.Context, cmd *C, state *Entity[T], publish EventPublisher) error
 
-func (b *compositeHandlerBuilder[T]) AddHandler(command CommandType, handler CommandHandler[T]) *compositeHandlerBuilder[T] {
-  if b.handlers[command] != nil {
-    panic("multiple handlers registered for command")
-  }
+func (f CommandHandlerFunction[T, C]) HandleCommand(ctx context.Context, cmd Command, state *Entity[T], publish EventPublisher) error {
+	command, ok := cmd.(C)
+	if !ok {
+		return UnexpectedCommand(cmd)
+	}
 
-  b.handlers[command] = handler
-
-  return b
-}
-
-func (b *compositeHandlerBuilder[T]) Build() CommandHandler[T] {
-  var handler CommandHandler[T] = func(ctx context.Context, command Command, state *Entity[T], publish EventPublisher) error {
-    h := b.handlers[command.Type()]
-    if h == nil {
-      return errors.New(fmt.Sprintf("no handler found for command %s", command.Type()))
-    }
-
-    return h(ctx, command, state, publish)
-  }
-
-  return handler
+	return f(ctx, &command, state, publish)
 }

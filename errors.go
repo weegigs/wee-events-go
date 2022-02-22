@@ -1,14 +1,14 @@
-package es
+package we
 
 import (
-  "errors"
-  "fmt"
+	"errors"
+	"fmt"
 )
 
-func UnexpectedEvent(event *DecodedEvent) error {
-  return errors.New(fmt.Sprintf("unexpected event %s", event.EventType))
+func UnexpectedEvent(event *RecordedEvent) error {
+	return errors.New(fmt.Sprintf("unexpected event %s", event.EventType))
 }
 
 func UnexpectedCommand(command Command) error {
-  return errors.New(fmt.Sprintf("unexpected command %s", command.Type()))
+	return errors.New(fmt.Sprintf("unexpected command %s", CommandNameOf(command)))
 }
