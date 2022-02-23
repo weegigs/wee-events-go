@@ -1,6 +1,7 @@
 package we
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 )
@@ -25,8 +26,8 @@ func (id CorrelationID) String() string {
 
 type Payload any
 type Data struct {
-	Encoding string `json:"encoding"`
-	Data     []byte `json:"data"`
+	Encoding string          `json:"encoding"`
+	Data     json.RawMessage `json:"data"`
 }
 
 type AggregateId struct {
@@ -69,44 +70,11 @@ type RecordedEventMetadata struct {
 }
 
 type RecordedEvent struct {
-	AggregateId AggregateId                   `json:"aggregate"`
-	Revision    Revision                      `json:"revision"`
-	EventID     EventID                       `json:"id"`
-	EventType   EventType                     `json:"type"`
-	Timestamp   Timestamp                     `json:"timestamp"`
-	Metadata    RecordedEventMetadata         `json:"metadata"`
-	Data        Data                          `json:"data"`
-	Decode      func(event DomainEvent) error `json:"-"`
-}
-
-// type Initializer[T any] func(evt *RecordedEvent) (*T, error)
-
-type Initializer[T any] interface {
-	Initialize(evt *RecordedEvent) (*T, error)
-}
-
-type InitializerFunction[T any, E any] func(evt *E) (*T, error)
-
-func (f InitializerFunction[T, E]) Initialize(evt *RecordedEvent) (*T, error) {
-	var event E
-	if err := evt.Decode(&event); err != nil {
-		return nil, err
-	}
-
-	return f(&event)
-}
-
-type Reducer[T any] interface {
-	Reduce(state *T, evt *RecordedEvent) error
-}
-
-type ReducerFunction[T any, E any] func(state *T, evt *E) error
-
-func (f ReducerFunction[T, E]) Reduce(state *T, evt *RecordedEvent) error {
-	var event E
-	if err := evt.Decode(&event); err != nil {
-		return err
-	}
-
-	return f(state, &event)
+	AggregateId AggregateId           `json:"aggregate"`
+	Revision    Revision              `json:"revision"`
+	EventID     EventID               `json:"id"`
+	EventType   EventType             `json:"type"`
+	Timestamp   Timestamp             `json:"timestamp"`
+	Metadata    RecordedEventMetadata `json:"metadata"`
+	Data        Data                  `json:"data"`
 }

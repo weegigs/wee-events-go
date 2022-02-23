@@ -1,7 +1,7 @@
 package counter
 
 type Counter struct {
-	Current int
+	Current int `json:"current"`
 }
 
 func (state *Counter) Value() int {

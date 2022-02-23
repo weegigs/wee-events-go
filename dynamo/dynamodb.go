@@ -22,28 +22,28 @@ type DynamoEventStore struct {
 	db           *dynamodb.Client
 	table        string
 	revision     *we.RevisionGenerator
-	eventEncoder we.EventEncoder
+	eventEncoder we.EventMarshaller
 }
 
-type EventsTableName string
+type EventStoreTableName string
 
-func (name EventsTableName) String() string {
+func (name EventStoreTableName) String() string {
 	return string(name)
 }
 
-func NewEventStore(db *dynamodb.Client, table EventsTableName, encoder we.EventEncoder) *DynamoEventStore {
+func NewEventStore(db *dynamodb.Client, table EventStoreTableName, encoder we.EventMarshaller) *DynamoEventStore {
 	return &DynamoEventStore{db: db, table: string(table), revision: we.NewRevisionGenerator(), eventEncoder: encoder}
 }
 
-func (ds *DynamoEventStore) Load(ctx context.Context, id we.AggregateId) (*we.Aggregate, error) {
-	events, err := ds.read(ctx, &id)
+func (ds *DynamoEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
+	events, err := ds.read(ctx, id)
 	if err != nil {
-		return nil, err
+		return we.Aggregate{}, err
 	}
 
 	revision := revisionFrom(events)
 
-	return &we.Aggregate{
+	return we.Aggregate{
 		Id:       id,
 		Revision: revision,
 		Events:   events,
@@ -51,11 +51,11 @@ func (ds *DynamoEventStore) Load(ctx context.Context, id we.AggregateId) (*we.Ag
 }
 
 func (ds *DynamoEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) (we.Revision, error) {
-	return ds.publish(ctx, &aggregateId, options, events)
+	return ds.publish(ctx, aggregateId, options, events)
 }
 
 func (ds *DynamoEventStore) Remove(ctx context.Context, aggregateId we.AggregateId) (int, error) {
-	return ds.remove(ctx, &aggregateId)
+	return ds.remove(ctx, aggregateId)
 }
 
 // internal
@@ -75,7 +75,7 @@ type latestRecord struct {
 	Timestamp    we.Timestamp `dynamodbav:"timestamp"`
 }
 
-func partitionKey(id *we.AggregateId) string {
+func partitionKey(id we.AggregateId) string {
 	return id.Encode().String()
 }
 
@@ -83,8 +83,8 @@ func sortKey(revision we.Revision) string {
 	return strings.Join([]string{`change-set#`, revision.String()}, "")
 }
 
-func latestFor(record *changeSet) *latestRecord {
-	return &latestRecord{
+func latestFor(record changeSet) latestRecord {
+	return latestRecord{
 		PartitionKey: record.PartitionKey,
 		SortKey:      "latest-revision",
 		Revision:     record.Revision,
@@ -93,7 +93,7 @@ func latestFor(record *changeSet) *latestRecord {
 }
 
 // KAO: Some of this could be done in parallel
-func (ds *DynamoEventStore) read(ctx context.Context, id *we.AggregateId) ([]we.RecordedEvent, error) {
+func (ds *DynamoEventStore) read(ctx context.Context, id we.AggregateId) ([]we.RecordedEvent, error) {
 	query := expression.Key("pk").Equal(expression.Value(partitionKey(id))).And(
 		expression.Key("sk").BeginsWith("change-set#"),
 	)
@@ -131,11 +131,6 @@ func (ds *DynamoEventStore) read(ctx context.Context, id *we.AggregateId) ([]we.
 
 		// KAO: this could be done in parallel
 		for _, record := range items {
-			for _, event := range record.Events {
-				event.Decode = func(out we.DomainEvent) error {
-					return ds.eventEncoder.Decode(&event.Data, out)
-				}
-			}
 			events = append(events, record.Events...)
 		}
 
@@ -148,7 +143,7 @@ func (ds *DynamoEventStore) read(ctx context.Context, id *we.AggregateId) ([]we.
 	return events, nil
 }
 
-func latestCondition(revision *we.Revision, expectedRevision we.Revision) expression.ConditionBuilder {
+func latestCondition(revision we.Revision, expectedRevision we.Revision) expression.ConditionBuilder {
 	if len(expectedRevision) == 0 {
 		return expression.Name("revision").LessThan(expression.Value(revision)).Or(
 			expression.AttributeNotExists(expression.Name("revision")),
@@ -190,11 +185,11 @@ func maybeRevisionConflict(err error) error {
 	return err
 }
 
-func (ds *DynamoEventStore) encodeEvent(event we.DomainEvent) (*we.Data, error) {
-	return ds.eventEncoder.Encode(event)
+func (ds *DynamoEventStore) encodeEvent(event we.DomainEvent) (we.Data, error) {
+	return ds.eventEncoder.Marshal(event)
 }
 
-func (ds *DynamoEventStore) makeChangeSet(aggregateId *we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (*changeSet, error) {
+func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (changeSet, error) {
 	now := time.Now()
 	timestamp := we.Timestamp(now.UTC().Format(we.RFC3339Milli))
 
@@ -205,14 +200,14 @@ func (ds *DynamoEventStore) makeChangeSet(aggregateId *we.AggregateId, options w
 		revision := ds.revision.NewRevision(now)
 		data, err := ds.encodeEvent(event)
 		if err != nil {
-			return nil, err
+			return changeSet{}, err
 		}
 
 		recorded[index] = we.RecordedEvent{
 			EventID:     we.EventID(revision),
 			EventType:   we.EventTypeOf(event),
-			AggregateId: *aggregateId,
-			Data:        *data,
+			AggregateId: aggregateId,
+			Data:        data,
 			Revision:    revision,
 			Timestamp:   timestamp,
 			Metadata:    options.RecordedEventMetadata,
@@ -221,7 +216,7 @@ func (ds *DynamoEventStore) makeChangeSet(aggregateId *we.AggregateId, options w
 
 	last := recorded[len(events)-1].Revision
 
-	return &changeSet{
+	return changeSet{
 		PartitionKey: partitionKey(aggregateId),
 		SortKey:      sortKey(last),
 		Events:       recorded,
@@ -231,7 +226,7 @@ func (ds *DynamoEventStore) makeChangeSet(aggregateId *we.AggregateId, options w
 
 }
 
-func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId *we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (we.Revision, error) {
+func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (we.Revision, error) {
 	if len(events) == 0 {
 		return "error", errors.New("attempted to publish empty list of events")
 	}
@@ -258,7 +253,7 @@ func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId *we.Aggrega
 
 			condition, err := expression.NewBuilder().WithCondition(
 				latestCondition(
-					&changes.Revision,
+					changes.Revision,
 					options.ExpectedRevision,
 				),
 			).Build()
@@ -314,7 +309,7 @@ func revisionFrom(events []we.RecordedEvent) we.Revision {
 	return events[count-1].Revision
 }
 
-func (ds *DynamoEventStore) remove(ctx context.Context, id *we.AggregateId) (int, error) {
+func (ds *DynamoEventStore) remove(ctx context.Context, id we.AggregateId) (int, error) {
 	type record struct {
 		PartitionKey string `dynamodbav:"pk"`
 		SortKey      string `dynamodbav:"sk"`

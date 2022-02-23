@@ -5,9 +5,9 @@ import (
 	"net/http"
 )
 
-type EntitySerializer[T any] func(entity *Entity[T]) (map[string]any, error)
+type EntitySerializer[T any] func(entity Entity[T]) (map[string]any, error)
 
-func StateSerializer[T any](entity *Entity[T]) (map[string]any, error) {
+func StateSerializer[T any](entity Entity[T]) (map[string]any, error) {
 	serialized, err := json.Marshal(entity.State)
 	if err != nil {
 		return nil, err
@@ -24,7 +24,7 @@ type ResourceEncoder[T any] struct {
 	Serializer EntitySerializer[T]
 }
 
-func (encoder ResourceEncoder[T]) Encode(w http.ResponseWriter, r *http.Request, e *Entity[T]) error {
+func (encoder ResourceEncoder[T]) Encode(w http.ResponseWriter, r *http.Request, e Entity[T]) error {
 	serialize := encoder.Serializer
 	if serialize == nil {
 		serialize = StateSerializer[T]

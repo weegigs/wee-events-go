@@ -19,7 +19,8 @@ func NameOf(value any) string {
 	split := strings.Split(reflect.TypeOf(value).String(), ".")
 	segments := make([]string, len(split))
 	for i, segment := range split {
-		segments[i] = strcase.ToKebab(segment)
+		s := strings.TrimLeft(segment, "*")
+		segments[i] = strcase.ToKebab(s)
 	}
 
 	namespace := segments[0]

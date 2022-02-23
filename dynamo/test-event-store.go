@@ -13,7 +13,7 @@ import (
 	we "github.com/weegigs/wee-events-go"
 )
 
-func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func() error, error) {
+func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 
 	db, err := testcontainers.GenericContainer(
 		ctx, testcontainers.GenericContainerRequest{
@@ -83,11 +83,13 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func() error, erro
 
 	store := NewEventStore(
 		client,
-		EventsTableName(*table.TableDescription.TableName),
-		we.JsonEventEncoder{},
+		EventStoreTableName(*table.TableDescription.TableName),
+		we.JsonEventMarshaller{},
 	)
 
-	return store, func() error {
-		return db.Terminate(ctx)
+	return store, func() {
+		if err := db.Terminate(ctx); err != nil {
+			panic(err)
+		}
 	}, nil
 }
