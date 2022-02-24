@@ -15,8 +15,8 @@ func HttpHandler[T any](controller EntityService[T]) http.Handler {
 	service := &httpService[T]{controller: controller, encoder: ResourceEncoder[T]{}}
 	routes := httprouter.New()
 
-	routes.HandlerFunc("GET", "/:type/:key", service.getResource())
-	routes.HandlerFunc("POST", "/:type/:key", service.executeCommand())
+	routes.Handler("GET", "/:type/:key", WithOtel(service.getResource(), "get resource"))
+	routes.Handler("POST", "/:type/:key", WithOtel(service.executeCommand(), "execute command"))
 
 	return routes
 }

@@ -2,17 +2,23 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
-	"time"
+	"os"
 
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	we "github.com/weegigs/wee-events-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/sdk/trace"
 )
 
 func run() error {
+
 	service, cleanup, err := local(context.Background())
 	if err != nil {
-		log.Fatalf("failed to configure controller: %v", err)
+		log.WithError(err).Info("failed to configure controller")
+		return errors.Wrap(err, "failed to configure controller")
 	}
 	defer cleanup()
 
@@ -20,31 +26,30 @@ func run() error {
 
 	addr := ":9080"
 	log.WithField("addr", addr).Info("starting server")
-	return http.ListenAndServe(addr, WithLogging(handler))
+	return http.ListenAndServe(addr, withLogging(handler))
 }
 
 func main() {
+	exporter, err := we.ConsoleExporter(io.Discard)
+	if err != nil {
+		log.WithError(err).Info("failed to configure controller")
+		os.Exit(1)
+	}
+
+	tp := trace.NewTracerProvider(
+		trace.WithBatcher(exporter),
+		trace.WithResource(traceResource()),
+	)
+
+	defer func() {
+		if err := tp.Shutdown(context.Background()); err != nil {
+			log.WithError(err).Info("tracing shutdown failed")
+		}
+	}()
+
+	otel.SetTracerProvider(tp)
+
 	if err := run(); err != nil {
-		log.WithField("event", "start server").Fatal(err)
+		log.WithError(err).Info("server exited with error")
 	}
-}
-
-func WithLogging(h http.Handler) http.Handler {
-	logFn := func(rw http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		uri := r.RequestURI
-		method := r.Method
-		h.ServeHTTP(rw, r) // serve the original request
-
-		duration := time.Since(start)
-
-		// log request details
-		log.WithFields(log.Fields{
-			"uri":      uri,
-			"method":   method,
-			"duration": duration,
-		}).Info()
-	}
-	return http.HandlerFunc(logFn)
 }

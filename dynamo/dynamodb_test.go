@@ -37,7 +37,8 @@ func TestDynamoDBStore(t *testing.T) {
 	ctx := context.Background()
 	eventStore, tearDown, err := DynamoTestStore(ctx)
 	if err != nil {
-		t.Fatalf("failed to create test store. %+v", err)
+		t.Logf("failed to create test store. %+v", err)
+		t.FailNow()
 	}
 
 	defer tearDown()

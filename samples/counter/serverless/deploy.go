@@ -12,11 +12,12 @@ type ServerlessStackProps struct {
 }
 
 func NewServerlessStack(scope constructs.Construct, id string, props *ServerlessStackProps) awscdk.Stack {
-	var sprops awscdk.StackProps
+	var stackProps awscdk.StackProps
 	if props != nil {
-		sprops = props.StackProps
+		stackProps = props.StackProps
 	}
-	stack := awscdk.NewStack(scope, &id, &sprops)
+
+	stack := awscdk.NewStack(scope, &id, &stackProps)
 
 	// The code that defines your stack goes here
 

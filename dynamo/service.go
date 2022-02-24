@@ -17,22 +17,16 @@ var Live = wire.NewSet(
 	Client,
 	LiveEventsTableName,
 	NewEventStore,
-	we.NewJsonEventMarshaller,
-	wire.Bind(new(we.EventMarshaller), new(we.JsonEventMarshaller)),
 	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 
 var Local = wire.NewSet(
 	LocalDynamoStore,
-	we.NewJsonEventMarshaller,
-	wire.Bind(new(we.EventMarshaller), new(we.JsonEventMarshaller)),
 	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 
 var Test = wire.NewSet(
 	TestStore,
-	we.NewJsonEventMarshaller,
-	wire.Bind(new(we.EventMarshaller), new(we.JsonEventMarshaller)),
 	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 

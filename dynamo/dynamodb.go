@@ -2,6 +2,7 @@ package dynamo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -19,10 +20,9 @@ import (
 )
 
 type DynamoEventStore struct {
-	db           *dynamodb.Client
-	table        string
-	revision     *we.RevisionGenerator
-	eventEncoder we.EventMarshaller
+	db       *dynamodb.Client
+	table    string
+	revision *we.RevisionGenerator
 }
 
 type EventStoreTableName string
@@ -31,8 +31,8 @@ func (name EventStoreTableName) String() string {
 	return string(name)
 }
 
-func NewEventStore(db *dynamodb.Client, table EventStoreTableName, encoder we.EventMarshaller) *DynamoEventStore {
-	return &DynamoEventStore{db: db, table: string(table), revision: we.NewRevisionGenerator(), eventEncoder: encoder}
+func NewEventStore(db *dynamodb.Client, table EventStoreTableName) *DynamoEventStore {
+	return &DynamoEventStore{db: db, table: string(table), revision: we.NewRevisionGenerator()}
 }
 
 func (ds *DynamoEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
@@ -61,11 +61,11 @@ func (ds *DynamoEventStore) Remove(ctx context.Context, aggregateId we.Aggregate
 // internal
 
 type changeSet struct {
-	PartitionKey string             `dynamodbav:"pk"`
-	SortKey      string             `dynamodbav:"sk"`
-	Events       []we.RecordedEvent `dynamodbav:"events"`
-	Revision     we.Revision        `dynamodbav:"revision"`
-	Timestamp    we.Timestamp       `dynamodbav:"timestamp"`
+	PartitionKey string       `dynamodbav:"pk"`
+	SortKey      string       `dynamodbav:"sk"`
+	Events       string       `dynamodbav:"events"`
+	Revision     we.Revision  `dynamodbav:"revision"`
+	Timestamp    we.Timestamp `dynamodbav:"timestamp"`
 }
 
 type latestRecord struct {
@@ -131,7 +131,11 @@ func (ds *DynamoEventStore) read(ctx context.Context, id we.AggregateId) ([]we.R
 
 		// KAO: this could be done in parallel
 		for _, record := range items {
-			events = append(events, record.Events...)
+			var evts []we.RecordedEvent
+			if err := json.Unmarshal([]byte(record.Events), &evts); err != nil {
+				return nil, err
+			}
+			events = append(events, evts...)
 		}
 
 		start = out.LastEvaluatedKey
@@ -186,7 +190,7 @@ func maybeRevisionConflict(err error) error {
 }
 
 func (ds *DynamoEventStore) encodeEvent(event we.DomainEvent) (we.Data, error) {
-	return ds.eventEncoder.Marshal(event)
+	return we.MarshalToData(event)
 }
 
 func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (changeSet, error) {
@@ -216,10 +220,15 @@ func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we
 
 	last := recorded[len(events)-1].Revision
 
+	evts, err := json.Marshal(recorded)
+	if err != nil {
+		return changeSet{}, err
+	}
+
 	return changeSet{
 		PartitionKey: partitionKey(aggregateId),
 		SortKey:      sortKey(last),
-		Events:       recorded,
+		Events:       string(evts),
 		Timestamp:    timestamp,
 		Revision:     last,
 	}, nil

@@ -26,8 +26,7 @@ func live(ctx context.Context) (we.EntityService[counter.Counter], func(), error
 	if err != nil {
 		return nil, nil, err
 	}
-	jsonEventMarshaller := we.NewJsonEventMarshaller()
-	dynamoEventStore := dynamo.NewEventStore(client, eventStoreTableName, jsonEventMarshaller)
+	dynamoEventStore := dynamo.NewEventStore(client, eventStoreTableName)
 	entityService := counter.CreateCounterService(v, dynamoEventStore)
 	return entityService, func() {
 	}, nil

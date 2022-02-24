@@ -2,7 +2,8 @@ package we
 
 import (
 	"context"
-	"fmt"
+
+	"go.opentelemetry.io/otel"
 )
 
 func CreateController[T any](
@@ -24,79 +25,53 @@ func CreateController[T any](
 		reducers[name] = reducer()
 	}
 
+	renderer := &Renderer[T]{
+		Initializers: initializers,
+		Reducers:     reducers,
+	}
+
+	dispatcher := &Dispatcher[T]{
+		Publish:  events.Publish,
+		Handlers: handlers,
+	}
+
 	return &Controller[T]{
-		events:       events,
-		handlers:     handlers,
-		initializers: initializers,
-		reducers:     reducers,
+		load:       events.Load,
+		dispatcher: dispatcher,
+		renderer:   renderer,
 	}
 }
 
 type Controller[T any] struct {
-	events       EventStore
-	handlers     map[CommandName]CommandHandler[T]
-	initializers map[EventType]Initializer[T]
-	reducers     map[EventType]Reducer[T]
+	load       EventLoader
+	dispatcher *Dispatcher[T]
+	renderer   *Renderer[T]
 }
 
+const tracerName = "events-controller"
+
 func (controller *Controller[T]) Load(ctx context.Context, id AggregateId) (Entity[T], error) {
-	aggregate, err := controller.events.Load(ctx, id)
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "load entity")
+	defer span.End()
+
+	aggregate, err := controller.load(ctx, id)
 	if err != nil {
 		return Entity[T]{}, err
 	}
 
-	var state *T
-	for _, event := range aggregate.Events {
-		if state == nil {
-			initializer := controller.initializers[event.EventType]
-			if nil == initializer {
-				continue
-			}
-
-			state, err = initializer.Initialize(&event)
-			if err != nil {
-				return Entity[T]{}, err
-			}
-		} else {
-			reducer := controller.reducers[event.EventType]
-			if nil == reducer {
-				continue
-			}
-
-			if err = reducer.Reduce(state, &event); err != nil {
-				return Entity[T]{}, err
-			}
-		}
-	}
-
-	return Entity[T]{
-		Aggregate: aggregate.Id,
-		Revision:  aggregate.Revision,
-		Type:      EntityType(NameOf(state)),
-		State:     state,
-	}, nil
+	return controller.renderer.Render(ctx, aggregate)
 }
 
-func (controller *Controller[T]) Execute(ctx context.Context, id AggregateId, command Command) (Entity[T], error) {
+func (controller *Controller[T]) Execute(ct context.Context, id AggregateId, command Command) (Entity[T], error) {
+	ctx, span := otel.Tracer(tracerName).Start(ct, "execute command")
+	defer span.End()
 	entity, err := controller.Load(ctx, id)
 	if err != nil {
 		return Entity[T]{}, err
 	}
 
-	commandName := CommandNameOf(command)
-	revision := entity.Revision
-
-	handler := controller.handlers[commandName]
-	if handler == nil {
-		return Entity[T]{}, CommandNotFound(commandName)
-	}
-
-	var publish EventPublisher = func(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) (Revision, error) {
-		revision, err = controller.events.Publish(ctx, aggregateId, options, events...)
-		return revision, err
-	}
-
-	if err = controller.execute(ctx, handler, command, entity, publish); err != nil {
+	revision, err := controller.dispatcher.Dispatch(ctx, entity, command)
+	if err != nil {
 		return Entity[T]{}, err
 	}
 
@@ -105,34 +80,4 @@ func (controller *Controller[T]) Execute(ctx context.Context, id AggregateId, co
 	} else {
 		return controller.Load(ctx, id)
 	}
-}
-
-func (controller *Controller[T]) Commands() []CommandName {
-	var names []CommandName
-	for name := range controller.handlers {
-		names = append(names, name)
-	}
-
-	return names
-}
-
-func (controller *Controller[T]) execute(ctx context.Context, handler CommandHandler[T], command Command, state Entity[T], publish EventPublisher) error {
-	switch cmd := command.(type) {
-	case RemoteCommand:
-		return handler.HandleRemoteCommand(ctx, cmd, state, publish)
-	default:
-		return handler.HandleCommand(ctx, cmd, state, publish)
-	}
-}
-
-func CommandNotFound(command CommandName) CommandNotFoundError {
-	return CommandNotFoundError{Command: command}
-}
-
-type CommandNotFoundError struct {
-	Command CommandName
-}
-
-func (e CommandNotFoundError) Error() string {
-	return fmt.Sprintf("unknown command: %s", e.Command)
 }

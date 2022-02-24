@@ -10,7 +10,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
-	we "github.com/weegigs/wee-events-go"
 )
 
 func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
@@ -84,7 +83,6 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 	store := NewEventStore(
 		client,
 		EventStoreTableName(*table.TableDescription.TableName),
-		we.JsonEventMarshaller{},
 	)
 
 	return store, func() {

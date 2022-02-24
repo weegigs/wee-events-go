@@ -37,7 +37,9 @@ func loadInitialCounter(controller we.EntityService[Counter]) test {
 		)
 
 		if err != nil {
-			t.Fatalf("Unexpected failure %+v", err)
+			t.Logf("Unexpected failure %+v", err)
+			t.Fail()
+			return
 		}
 
 		assert.Equal(t, we.InitialRevision, entity.Revision)
@@ -62,7 +64,9 @@ func incrementsCounter(controller we.EntityService[Counter]) test {
 		)
 
 		if err != nil {
-			t.Fatalf("Unexpected failure %+v", err)
+			t.Logf("Unexpected failure %+v", err)
+			t.Fail()
+			return
 		}
 
 		assert.NotEqual(t, we.InitialRevision, entity.Revision)
@@ -88,7 +92,9 @@ func decrementsCounter(controller we.EntityService[Counter]) test {
 		)
 
 		if err != nil {
-			t.Fatalf("Unexpected failure %+v", err)
+			t.Logf("Unexpected failure %+v", err)
+			t.Fail()
+			return
 		}
 
 		entity, err := controller.Execute(
@@ -102,7 +108,9 @@ func decrementsCounter(controller we.EntityService[Counter]) test {
 		)
 
 		if err != nil {
-			t.Fatalf("Unexpected failure %+v", err)
+			t.Logf("Unexpected failure %+v", err)
+			t.Fail()
+			return
 		}
 
 		assert.NotEqual(t, we.InitialRevision, entity.Revision)
@@ -114,7 +122,9 @@ func decrementsCounter(controller we.EntityService[Counter]) test {
 func TestCounterController(t *testing.T) {
 	store, teardown, err := dynamo.DynamoTestStore(context.Background())
 	if err != nil {
-		t.Fatalf("failed to create test store. %+v", err)
+		t.Logf("failed to initiate test store: %+v", err)
+		t.Fail()
+		return
 	}
 
 	defer teardown()

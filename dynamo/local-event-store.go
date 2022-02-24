@@ -10,7 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	we "github.com/weegigs/wee-events-go"
+	log "github.com/sirupsen/logrus"
 )
 
 func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
@@ -35,7 +35,6 @@ func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
 	store := NewEventStore(
 		client,
 		EventStoreTableName("wee-events"),
-		we.JsonEventMarshaller{},
 	)
 
 	return store, nil
@@ -75,6 +74,8 @@ func tableExists(ctx context.Context, client *dynamodb.Client, name string) (boo
 }
 
 func createTable(ctx context.Context, client *dynamodb.Client, table string) error {
+	log.Info("creating events table")
+
 	_, err := client.CreateTable(
 		ctx, &dynamodb.CreateTableInput{
 			TableName: aws.String(table),

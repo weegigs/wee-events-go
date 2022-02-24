@@ -1,9 +1,16 @@
 {
   "cSpell.words": [
     "dynamodbav",
+    "evts",
     "goccy",
+    "jsii",
     "oklog",
+    "otel",
+    "otelhttp",
+    "otlptrace",
+    "otlptracegrpc",
     "randomizer",
+    "semconv",
     "stretchr"
   ]
 }
