@@ -8,9 +8,12 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+type Initializers[T any] map[EventType]Initializer[T]
+type Reducers[T any] map[EventType]Reducer[T]
+
 type Renderer[T any] struct {
-	Initializers map[EventType]Initializer[T]
-	Reducers     map[EventType]Reducer[T]
+	Initializers Initializers[T]
+	Reducers     Reducers[T]
 }
 
 func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T], error) {
@@ -18,7 +21,7 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
 	var err error
 
 	for _, event := range aggregate.Events {
-		eventName := EventTypeOf(event)
+		eventType := event.EventType
 
 		if state == nil {
 			initializer := r.Initializers[event.EventType]
@@ -26,11 +29,11 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
 				continue
 			}
 
-			_, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("initialize %s", eventName))
+			_, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("initialize with %s", eventType))
 			defer span.End()
 			state, err = initializer.Initialize(&event)
 			if err != nil {
-				return Entity[T]{}, errors.Wrap(err, fmt.Sprintf("failed to initialize state with %s", eventName))
+				return Entity[T]{}, errors.Wrap(err, fmt.Sprintf("failed to initialize state with %s", eventType))
 			}
 		} else {
 			reducer := r.Reducers[event.EventType]
@@ -38,10 +41,10 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
 				continue
 			}
 
-			_, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("process %s", eventName))
+			_, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("apply %s", eventType))
 			defer span.End()
 			if err := reducer.Reduce(state, &event); err != nil {
-				return Entity[T]{}, errors.Wrap(err, fmt.Sprintf("failed to process update with %s", eventName))
+				return Entity[T]{}, errors.Wrap(err, fmt.Sprintf("failed to process update with %s", eventType))
 			}
 		}
 	}

@@ -8,37 +8,37 @@ package main
 
 import (
 	"context"
-	"github.com/weegigs/wee-events-go"
-	"github.com/weegigs/wee-events-go/dynamo"
 	"github.com/weegigs/wee-events-go/samples/counter"
+	"github.com/weegigs/wee-events-go/stores/ds"
+	"github.com/weegigs/wee-events-go/we"
 )
 
 // Injectors from wire.go:
 
 func live(ctx context.Context) (we.EntityService[counter.Counter], func(), error) {
+	config, err := ds.DefaultAWSConfig(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	client := ds.Client(config)
+	eventStoreTableName, err := ds.LiveEventsTableName()
+	if err != nil {
+		return nil, nil, err
+	}
+	dynamoEventStore := ds.NewEventStore(client, eventStoreTableName)
 	v := counter.PseudoRandomizer()
-	config, err := dynamo.DefaultAWSConfig(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-	client := dynamo.Client(config)
-	eventStoreTableName, err := dynamo.LiveEventsTableName()
-	if err != nil {
-		return nil, nil, err
-	}
-	dynamoEventStore := dynamo.NewEventStore(client, eventStoreTableName)
-	entityService := counter.CreateCounterService(v, dynamoEventStore)
+	entityService := NewCounterService(dynamoEventStore, v)
 	return entityService, func() {
 	}, nil
 }
 
 func local(ctx context.Context) (we.EntityService[counter.Counter], func(), error) {
-	v := counter.PseudoRandomizer()
-	dynamoEventStore, err := dynamo.LocalDynamoStore(ctx)
+	dynamoEventStore, err := ds.LocalDynamoStore(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	entityService := counter.CreateCounterService(v, dynamoEventStore)
+	v := counter.PseudoRandomizer()
+	entityService := NewCounterService(dynamoEventStore, v)
 	return entityService, func() {
 	}, nil
 }

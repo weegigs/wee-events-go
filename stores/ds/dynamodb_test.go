@@ -1,4 +1,4 @@
-package dynamo
+package ds
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
-	we "github.com/weegigs/wee-events-go"
+	"github.com/weegigs/wee-events-go/we"
 )
 
 var entropy = ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)

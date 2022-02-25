@@ -1,16 +1,20 @@
 {
   "cSpell.words": [
     "dynamodbav",
+    "esdb",
+    "esdbs",
     "evts",
     "goccy",
     "jsii",
     "oklog",
     "otel",
+    "otelaws",
     "otelhttp",
     "otlptrace",
     "otlptracegrpc",
     "randomizer",
     "semconv",
-    "stretchr"
+    "stretchr",
+    "wehttp"
   ]
 }

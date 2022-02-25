@@ -1,4 +1,4 @@
-package dynamo
+package ds
 
 import (
 	"context"
@@ -7,9 +7,11 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 
 	"github.com/google/wire"
-	we "github.com/weegigs/wee-events-go"
+	"github.com/weegigs/wee-events-go/we"
 )
 
 var Live = wire.NewSet(
@@ -49,4 +51,9 @@ func TestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 
 func DefaultAWSConfig(ctx context.Context) (aws.Config, error) {
 	return config.LoadDefaultConfig(ctx)
+}
+
+func Client(cfg aws.Config) *dynamodb.Client {
+	otelaws.AppendMiddlewares(&cfg.APIOptions)
+	return dynamodb.NewFromConfig(cfg)
 }

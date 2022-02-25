@@ -1,4 +1,4 @@
-package dynamo
+package ds
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 )
 
 func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
@@ -41,7 +42,7 @@ func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
 }
 
 func localConfig(ctx context.Context) (aws.Config, error) {
-	return config.LoadDefaultConfig(ctx,
+	config, err := config.LoadDefaultConfig(ctx,
 		config.WithRegion("us-east-1"),
 		config.WithEndpointResolver(aws.EndpointResolverFunc(
 			func(service, region string) (aws.Endpoint, error) {
@@ -53,6 +54,13 @@ func localConfig(ctx context.Context) (aws.Config, error) {
 				Source: "Hard-coded credentials; values are irrelevant for local DynamoDB",
 			},
 		}))
+
+	if err != nil {
+		return aws.Config{}, err
+	}
+
+	otelaws.AppendMiddlewares(&config.APIOptions)
+	return config, nil
 }
 
 func tableExists(ctx context.Context, client *dynamodb.Client, name string) (bool, error) {

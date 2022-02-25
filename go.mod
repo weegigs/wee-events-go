@@ -3,7 +3,6 @@ module github.com/weegigs/wee-events-go
 go 1.18
 
 require (
-	github.com/avast/retry-go/v4 v4.0.3
 	github.com/aws/aws-cdk-go/awscdk/v2 v2.13.0
 	github.com/aws/aws-sdk-go-v2 v1.13.0
 	github.com/aws/aws-sdk-go-v2/config v1.13.1
@@ -16,7 +15,6 @@ require (
 	github.com/goccy/go-json v0.9.4
 	github.com/google/wire v0.5.0
 	github.com/iancoleman/strcase v0.2.0
-	github.com/julienschmidt/httprouter v1.2.0
 	github.com/oklog/ulid/v2 v2.0.2
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
@@ -32,11 +30,17 @@ require (
 )
 
 require (
+	github.com/EventStore/EventStore-Client-Go v1.0.2 // indirect
+	github.com/rs/zerolog v1.26.1 // indirect
+)
+
+require (
 	github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 // indirect
 	github.com/Masterminds/semver/v3 v3.1.1 // indirect
 	github.com/Microsoft/go-winio v0.4.17-0.20210211115548-6eac466e5fa3 // indirect
 	github.com/Microsoft/hcsshim v0.8.16 // indirect
-	github.com/avast/retry-go v3.0.0+incompatible // indirect
+	github.com/avast/retry-go v3.0.0+incompatible
+	github.com/aws/aws-lambda-go v1.28.0
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.10.0 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.4 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.2.0 // indirect
@@ -58,6 +62,8 @@ require (
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.4.0 // indirect
 	github.com/felixge/httpsnoop v1.0.2 // indirect
+	github.com/go-chi/chi/v5 v5.0.7
+	github.com/go-chi/render v1.0.1
 	github.com/go-logr/logr v1.2.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -77,6 +83,8 @@ require (
 	github.com/opencontainers/runc v1.0.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.opencensus.io v0.22.3 // indirect
+	go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws v0.29.0
+	go.opentelemetry.io/otel/exporters/jaeger v1.4.1
 	go.opentelemetry.io/otel/exporters/otlp/internal/retry v1.4.1 // indirect
 	go.opentelemetry.io/otel/internal/metric v0.27.0 // indirect
 	go.opentelemetry.io/otel/metric v0.27.0 // indirect

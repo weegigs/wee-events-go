@@ -1,4 +1,4 @@
-package dynamo
+package ds
 
 import (
 	"context"

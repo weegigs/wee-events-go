@@ -2,38 +2,23 @@ package main
 
 import (
 	"context"
-	"io"
 	"net/http"
 	"os"
 
-	"github.com/pkg/errors"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
 	log "github.com/sirupsen/logrus"
-	we "github.com/weegigs/wee-events-go"
+	"github.com/weegigs/wee-events-go/connectors/wehttp"
+	"github.com/weegigs/wee-events-go/we"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/sdk/trace"
 )
 
-func run() error {
-
-	service, cleanup, err := local(context.Background())
+func configureTracing() (func(), error) {
+	exporter, err := we.JaegerExporter()
 	if err != nil {
-		log.WithError(err).Info("failed to configure controller")
-		return errors.Wrap(err, "failed to configure controller")
-	}
-	defer cleanup()
-
-	handler := we.HttpHandler(service)
-
-	addr := ":9080"
-	log.WithField("addr", addr).Info("starting server")
-	return http.ListenAndServe(addr, withLogging(handler))
-}
-
-func main() {
-	exporter, err := we.ConsoleExporter(io.Discard)
-	if err != nil {
-		log.WithError(err).Info("failed to configure controller")
-		os.Exit(1)
+		return nil, err
 	}
 
 	tp := trace.NewTracerProvider(
@@ -41,15 +26,46 @@ func main() {
 		trace.WithResource(traceResource()),
 	)
 
-	defer func() {
+	cleanup := func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
 			log.WithError(err).Info("tracing shutdown failed")
 		}
-	}()
+	}
 
 	otel.SetTracerProvider(tp)
 
-	if err := run(); err != nil {
+	return cleanup, nil
+}
+
+func main() {
+
+	traceingCleanup, err := configureTracing()
+	if err != nil {
+		log.WithError(err).Info("failed to configure tracing")
+		os.Exit(1)
+	}
+	defer traceingCleanup()
+
+	service, serviceCleanup, err := local(context.Background())
+	if err != nil {
+		log.WithError(err).Info("failed to configure service")
+		os.Exit(1)
+	}
+	defer serviceCleanup()
+
+	r := chi.NewRouter()
+
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+
+	r.Mount("/", wehttp.NewHandler(service))
+
+	addr := ":9080"
+	log.WithField("addr", addr).Info("starting server")
+
+	if err := http.ListenAndServe(addr, r); err != nil {
 		log.WithError(err).Info("server exited with error")
 	}
+
 }

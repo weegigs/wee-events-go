@@ -1,4 +1,4 @@
-package dynamo
+package ds
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
 
-	we "github.com/weegigs/wee-events-go"
+	"github.com/weegigs/wee-events-go/we"
 )
 
 type DynamoEventStore struct {

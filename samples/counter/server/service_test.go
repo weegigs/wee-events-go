@@ -1,4 +1,4 @@
-package counter
+package main
 
 import (
 	"context"
@@ -8,8 +8,9 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
-	we "github.com/weegigs/wee-events-go"
-	dynamo "github.com/weegigs/wee-events-go/dynamo"
+	"github.com/weegigs/wee-events-go/samples/counter"
+	"github.com/weegigs/wee-events-go/stores/ds"
+	"github.com/weegigs/wee-events-go/we"
 )
 
 var entropy = ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
@@ -23,10 +24,8 @@ func createId() we.AggregateId {
 
 type test = func(t *testing.T)
 
-func loadInitialCounter(controller we.EntityService[Counter]) test {
+func loadInitialCounter(controller we.EntityService[counter.Counter]) test {
 	return func(t *testing.T) {
-		// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
-		// defer cancel()
 		ctx := context.TODO()
 
 		entity, err := controller.Load(
@@ -47,10 +46,8 @@ func loadInitialCounter(controller we.EntityService[Counter]) test {
 	}
 }
 
-func incrementsCounter(controller we.EntityService[Counter]) test {
+func incrementsCounter(controller we.EntityService[counter.Counter]) test {
 	return func(t *testing.T) {
-		// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
-		// defer cancel()
 		ctx := context.TODO()
 
 		entity, err := controller.Execute(
@@ -58,7 +55,7 @@ func incrementsCounter(controller we.EntityService[Counter]) test {
 				Type: "counter",
 				Key:  "test-2",
 			},
-			Increment{
+			counter.Increment{
 				Amount: 7,
 			},
 		)
@@ -75,10 +72,8 @@ func incrementsCounter(controller we.EntityService[Counter]) test {
 	}
 }
 
-func decrementsCounter(controller we.EntityService[Counter]) test {
+func decrementsCounter(controller we.EntityService[counter.Counter]) test {
 	return func(t *testing.T) {
-		// ctx, cancel := context.WithTimeout(context.Background(), time.Duration(5)*time.Second)
-		// defer cancel()
 		ctx := context.TODO()
 
 		_, err := controller.Execute(
@@ -86,7 +81,7 @@ func decrementsCounter(controller we.EntityService[Counter]) test {
 				Type: "counter",
 				Key:  "test-3",
 			},
-			Increment{
+			counter.Increment{
 				Amount: 7,
 			},
 		)
@@ -102,7 +97,7 @@ func decrementsCounter(controller we.EntityService[Counter]) test {
 				Type: "counter",
 				Key:  "test-2",
 			},
-			Decrement{
+			counter.Decrement{
 				Amount: 5,
 			},
 		)
@@ -120,7 +115,7 @@ func decrementsCounter(controller we.EntityService[Counter]) test {
 }
 
 func TestCounterController(t *testing.T) {
-	store, teardown, err := dynamo.DynamoTestStore(context.Background())
+	store, teardown, err := ds.DynamoTestStore(context.Background())
 	if err != nil {
 		t.Logf("failed to initiate test store: %+v", err)
 		t.Fail()
@@ -128,7 +123,7 @@ func TestCounterController(t *testing.T) {
 	}
 
 	defer teardown()
-	controller := CreateCounterService(func() int { return 1 }, store)
+	controller := NewCounterService(store, func() int { return 1 })
 
 	t.Run("load initial entity", loadInitialCounter(controller))
 	t.Run("increment counter", incrementsCounter(controller))

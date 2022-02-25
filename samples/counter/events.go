@@ -1,6 +1,6 @@
 package counter
 
-import es "github.com/weegigs/wee-events-go"
+import es "github.com/weegigs/wee-events-go/we"
 
 type Incremented struct {
 	Amount int `json:"amount"`

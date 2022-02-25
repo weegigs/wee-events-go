@@ -1,7 +1,7 @@
 package counter
 
 import (
-	es "github.com/weegigs/wee-events-go"
+	es "github.com/weegigs/wee-events-go/we"
 )
 
 const IncrementCmd = "counter:increment"

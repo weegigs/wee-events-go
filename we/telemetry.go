@@ -2,10 +2,8 @@ package we
 
 import (
 	"context"
-	"io"
-	"net/http"
 
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
@@ -13,7 +11,7 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-func ConsoleExporter(w io.Writer) (trace.SpanExporter, error) {
+func ConsoleExporter() (trace.SpanExporter, error) {
 	return stdouttrace.New(stdouttrace.WithPrettyPrint())
 }
 
@@ -31,6 +29,6 @@ func HoneycombExporter(ctx context.Context, team string, dataset string) (*otlpt
 	return otlptrace.New(ctx, client)
 }
 
-func WithOtel(h http.Handler, name string) http.Handler {
-	return otelhttp.NewHandler(h, name)
+func JaegerExporter() (*jaeger.Exporter, error) {
+	return jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint("http://localhost:14268/api/traces")))
 }

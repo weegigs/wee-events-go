@@ -7,14 +7,12 @@ import (
 	"context"
 
 	"github.com/google/wire"
-	we "github.com/weegigs/wee-events-go"
-	"github.com/weegigs/wee-events-go/samples/counter"
 )
 
-func live(ctx context.Context) (we.EntityService[counter.Counter], func(), error) {
-	panic(wire.Build(counter.Live))
+func live(ctx context.Context) (CounterService, func(), error) {
+	panic(wire.Build(Live))
 }
 
-func local(ctx context.Context) (we.EntityService[counter.Counter], func(), error) {
-	panic(wire.Build(counter.Local))
+func local(ctx context.Context) (CounterService, func(), error) {
+	panic(wire.Build(Local))
 }

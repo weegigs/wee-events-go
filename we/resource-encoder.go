@@ -20,6 +20,16 @@ func StateSerializer[T any](entity Entity[T]) (map[string]any, error) {
 	return resource, nil
 }
 
+func NewCustomResourceEncoder[T any](serializer EntitySerializer[T]) *ResourceEncoder[T] {
+	return &ResourceEncoder[T]{
+		Serializer: serializer,
+	}
+}
+
+func NewResourceEncoder[T any]() *ResourceEncoder[T] {
+	return &ResourceEncoder[T]{}
+}
+
 type ResourceEncoder[T any] struct {
 	Serializer EntitySerializer[T]
 }

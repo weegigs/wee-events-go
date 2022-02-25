@@ -46,4 +46,12 @@ Debug logging may be useful during development to quickly verify something, temp
 to the point. If you're tempted to leave the debug in place consider adding the information
 to the trace.
 
+## Constructor functions
+
+Constructor function naming should follow the conventions established by the standard library.
+
+* `New<type>`  creates a pointer to the instance, i.e `*<type>`.
+* `Make<type>` creates an instance of the type , i.e `<type>`
+
+
 [let’s talk about logging]: https://dave.cheney.net/2015/11/05/lets-talk-about-logging
