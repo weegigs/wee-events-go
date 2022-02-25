@@ -17,7 +17,6 @@ import (
 var Live = wire.NewSet(
 	DefaultAWSConfig,
 	Client,
-	LiveEventsTableName,
 	NewEventStore,
 	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
@@ -32,7 +31,7 @@ var Test = wire.NewSet(
 	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 
-func LiveEventsTableName() (EventStoreTableName, error) {
+func EventsTableNameFromEnvironment() (EventStoreTableName, error) {
 	table := os.Getenv("DYNAMODB_EVENTS_TABLE_NAME")
 	if len(table) == 0 {
 		return "", errors.New("DYNAMODB_EVENTS_TABLE_NAME is not set")

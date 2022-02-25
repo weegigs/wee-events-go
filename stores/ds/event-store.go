@@ -3,7 +3,6 @@ package ds
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
+	"github.com/pkg/errors"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -50,7 +50,7 @@ func (ds *DynamoEventStore) Load(ctx context.Context, id we.AggregateId) (we.Agg
 	}, nil
 }
 
-func (ds *DynamoEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) (we.Revision, error) {
+func (ds *DynamoEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
 	return ds.publish(ctx, aggregateId, options, events)
 }
 
@@ -133,7 +133,7 @@ func (ds *DynamoEventStore) read(ctx context.Context, id we.AggregateId) ([]we.R
 		for _, record := range items {
 			var evts []we.RecordedEvent
 			if err := json.Unmarshal([]byte(record.Events), &evts); err != nil {
-				return nil, err
+				return nil, errors.Wrap(err, "failed to unmarshal events")
 			}
 			events = append(events, evts...)
 		}
@@ -235,12 +235,10 @@ func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we
 
 }
 
-func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (we.Revision, error) {
+func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) error {
 	if len(events) == 0 {
-		return "error", errors.New("attempted to publish empty list of events")
+		return errors.New("attempted to publish empty list of events")
 	}
-
-	var revision we.Revision
 
 	err := retry.Do(
 		func() error {
@@ -248,7 +246,6 @@ func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.Aggregat
 			if err != nil {
 				return err
 			}
-			revision = changes.Revision
 
 			latest, err := attributevalue.MarshalMap(latestFor(changes))
 			if err != nil {
@@ -302,11 +299,11 @@ func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.Aggregat
 		retry.LastErrorOnly(true),
 	)
 
-	if err != nil {
-		return "error", err
+	if err != nil && !isRevisionConflict(err) {
+		return errors.Wrap(err, "failed to publish events")
 	}
 
-	return revision, nil
+	return err
 }
 
 func revisionFrom(events []we.RecordedEvent) we.Revision {

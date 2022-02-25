@@ -7,6 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/render"
@@ -36,10 +37,10 @@ func NewHandler[T any](entityService we.EntityService[T], options ...HandlerOpti
 
 	r.Use(render.SetContentType(render.ContentTypeJSON))
 
-	r.Method("GET", "/{type}/{key}", WithTelemetry(service.getResource(), "get resource"))
-	r.Method("POST", "/{type}/{key}", WithTelemetry(service.executeCommand(), "execute command"))
+	r.Method("GET", "/{type}/{key}", service.getResource())
+	r.Method("POST", "/{type}/{key}", service.executeCommand())
 
-	return r
+	return otelhttp.NewHandler(r, "we-http")
 }
 
 type httpService[T any] struct {
@@ -88,7 +89,7 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 		}
 
 		var command we.RemoteCommand
-		if err := json.Unmarshal(body, &command); err != nil {
+		if err := json.UnmarshalContext(r.Context(), body, &command); err != nil {
 			log.Info().Err(err).Msg("failed to unmarshal command")
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return

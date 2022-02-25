@@ -26,27 +26,29 @@ type entityService[T any] struct {
 const tracerName = "events-service"
 
 func (s *entityService[T]) Load(ctx context.Context, id AggregateId) (Entity[T], error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "service load entity")
-	defer span.End()
+	// ctx, span := otel.Tracer(tracerName).Start(ctx, "service load entity")
+	// defer span.End()
 	return s.loader.Load(ctx, id)
 }
 
 func (s *entityService[T]) Execute(ctx context.Context, id AggregateId, command Command) (Entity[T], error) {
-	ctx, span := otel.Tracer(tracerName).Start(ctx, "service execute command")
+	ctx, span := otel.Tracer(tracerName).Start(ctx, "execute command")
 	defer span.End()
+
 	entity, err := s.Load(ctx, id)
 	if err != nil {
 		return Entity[T]{}, err
 	}
 
-	revision, err := s.dispatcher.Dispatch(ctx, entity, command)
+	published, err := s.dispatcher.Dispatch(ctx, entity, command)
+
 	if err != nil {
 		return Entity[T]{}, err
 	}
 
-	if revision == entity.Revision {
+	if published == false {
 		return entity, nil
-	} else {
-		return s.Load(ctx, id)
 	}
+
+	return s.Load(ctx, id)
 }

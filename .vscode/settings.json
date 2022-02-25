@@ -5,8 +5,11 @@
     "esdbs",
     "evts",
     "goccy",
+    "gomega",
+    "jaswdr",
     "jsii",
     "oklog",
+    "onsi",
     "otel",
     "otelaws",
     "otelhttp",
@@ -15,6 +18,7 @@
     "randomizer",
     "semconv",
     "stretchr",
+    "unmarshalling",
     "wehttp"
   ]
 }

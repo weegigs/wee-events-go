@@ -20,6 +20,9 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
 	var state *T
 	var err error
 
+	_, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("render %s", NameOf(state)))
+	defer span.End()
+
 	for _, event := range aggregate.Events {
 		eventType := event.EventType
 
@@ -29,8 +32,8 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
 				continue
 			}
 
-			_, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("initialize with %s", eventType))
-			defer span.End()
+			// _, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("initialize with %s", eventType))
+			// defer span.End()
 			state, err = initializer.Initialize(&event)
 			if err != nil {
 				return Entity[T]{}, errors.Wrap(err, fmt.Sprintf("failed to initialize state with %s", eventType))
@@ -41,8 +44,8 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
 				continue
 			}
 
-			_, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("apply %s", eventType))
-			defer span.End()
+			// _, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("apply %s", eventType))
+			// defer span.End()
 			if err := reducer.Reduce(state, &event); err != nil {
 				return Entity[T]{}, errors.Wrap(err, fmt.Sprintf("failed to process update with %s", eventType))
 			}

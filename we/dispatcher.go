@@ -10,7 +10,7 @@ import (
 type CommandHandlers[T any] map[CommandName]CommandHandler[T]
 
 type Dispatcher[T any] interface {
-	Dispatch(ctx context.Context, entity Entity[T], command Command) (Revision, error)
+	Dispatch(ctx context.Context, entity Entity[T], command Command) (bool, error)
 }
 
 type CommandDispatcher[T any] struct {
@@ -18,7 +18,7 @@ type CommandDispatcher[T any] struct {
 	Handler CommandHandler[T]
 }
 
-func (c *CommandDispatcher[T]) Dispatch(ctx context.Context, entity Entity[interface{}], command Command) (Revision, error) {
+func (c *CommandDispatcher[T]) Dispatch(ctx context.Context, entity Entity[T], command Command) (bool, error) {
 	// TODO implement me
 	panic("implement me")
 }
@@ -28,50 +28,17 @@ type RoutedDispatcher[T any] struct {
 	Handlers CommandHandlers[T]
 }
 
-type publisher struct {
-	publish  EventPublisher
-	revision Revision
-}
-
-func (p *publisher) Publish(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) (Revision, error) {
-	revision, err := p.Publish(ctx, aggregateId, options, events...)
-	p.revision = revision
-
-	return revision, err
-}
-
-func (d *RoutedDispatcher[T]) Dispatch(ctx context.Context, entity Entity[T], command Command) (Revision, error) {
+func (d *RoutedDispatcher[T]) Dispatch(ctx context.Context, entity Entity[T], command Command) (bool, error) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("dispatch %s", CommandNameOf(command)))
 	defer span.End()
-
-	var err error
-	revision := entity.Revision
 
 	commandName := CommandNameOf(command)
 	handler := d.Handlers[commandName]
 	if handler == nil {
-		return "", CommandNotFound(commandName)
+		return false, CommandNotFound(commandName)
 	}
 
-	var publish = func(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) (Revision, error) {
-		revision, err = d.Publish(ctx, aggregateId, options, events...)
-		return revision, err
-	}
-
-	if err = d.execute(ctx, handler, command, entity, publish); err != nil {
-		return "", err
-	}
-
-	return revision, nil
-}
-
-func (d *RoutedDispatcher[T]) execute(ctx context.Context, handler CommandHandler[T], command Command, state Entity[T], publish EventPublisher) error {
-	switch cmd := command.(type) {
-	case RemoteCommand:
-		return handler.HandleRemoteCommand(ctx, cmd, state, publish)
-	default:
-		return handler.HandleCommand(ctx, cmd, state, publish)
-	}
+	return execute(ctx, handler, command, entity, d.Publish)
 }
 
 func CommandNotFound(command CommandName) CommandNotFoundError {
@@ -84,4 +51,36 @@ type CommandNotFoundError struct {
 
 func (e CommandNotFoundError) Error() string {
 	return fmt.Sprintf("unknown command: %s", e.Command)
+}
+
+func execute[T any](ctx context.Context, handler CommandHandler[T], command Command, state Entity[T], publish EventPublisher) (bool, error) {
+	tracking := &trackingPublisher{publish: publish}
+
+	switch cmd := command.(type) {
+	case RemoteCommand:
+		if err := handler.HandleRemoteCommand(ctx, cmd, state, tracking.Publish); err != nil {
+			return tracking.published, err
+		}
+	default:
+		if err := handler.HandleCommand(ctx, cmd, state, tracking.Publish); err != nil {
+			return tracking.published, err
+		}
+	}
+
+	return tracking.published, nil
+}
+
+type trackingPublisher struct {
+	publish   EventPublisher
+	published bool
+}
+
+func (p *trackingPublisher) Publish(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) error {
+	if err := p.publish(ctx, aggregateId, options, events...); err != nil {
+		return err
+	}
+
+	p.published = p.published || len(events) > 0
+
+	return nil
 }

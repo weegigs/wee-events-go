@@ -21,7 +21,7 @@ func live(ctx context.Context) (we.EntityService[counter.Counter], func(), error
 		return nil, nil, err
 	}
 	client := ds.Client(config)
-	eventStoreTableName, err := ds.LiveEventsTableName()
+	eventStoreTableName, err := ds.EventsTableNameFromEnvironment()
 	if err != nil {
 		return nil, nil, err
 	}

@@ -6,11 +6,11 @@ import (
 )
 
 type EventLoader = func(ctx context.Context, id AggregateId) (Aggregate, error)
-type EventPublisher = func(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) (Revision, error)
+type EventPublisher = func(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) error
 
 type EventStore interface {
 	Load(ctx context.Context, id AggregateId) (Aggregate, error)
-	Publish(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) (Revision, error)
+	Publish(ctx context.Context, aggregateId AggregateId, options PublishOptions, events ...DomainEvent) error
 }
 
 func Loader(store EventStore) EventLoader {

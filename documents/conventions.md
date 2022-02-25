@@ -50,8 +50,22 @@ to the trace.
 
 Constructor function naming should follow the conventions established by the standard library.
 
-* `New<type>`  creates a pointer to the instance, i.e `*<type>`.
-* `Make<type>` creates an instance of the type , i.e `<type>`
+- `New<type>` creates a pointer to the instance, i.e `*<type>`.
+- `Make<type>` creates an instance of the type , i.e `<type>`
 
+## Comments
+
+Comments are proceeded by the authors initials, eg:
+
+```golang
+// KAO - the first event in an es stream is event number 0. 0 would translate
+// to initial revision so I'm incrementing by one to get a usable revision.
+// It *may* be possible to convert this to a ulid of sorts depending on the
+// order of the CreatedDate
+```
+
+### Authors
+
+- KAO: Kevin O'Neill
 
 [let’s talk about logging]: https://dave.cheney.net/2015/11/05/lets-talk-about-logging

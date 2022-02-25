@@ -67,8 +67,9 @@ func incrementsCounter(controller we.EntityService[counter.Counter]) test {
 		}
 
 		assert.NotEqual(t, we.InitialRevision, entity.Revision)
-		assert.Equal(t, true, entity.Initialized())
-		assert.Equal(t, 7, entity.State.Value())
+		if assert.Equal(t, true, entity.Initialized()) {
+			assert.Equal(t, 7, entity.State.Value())
+		}
 	}
 }
 
@@ -109,8 +110,9 @@ func decrementsCounter(controller we.EntityService[counter.Counter]) test {
 		}
 
 		assert.NotEqual(t, we.InitialRevision, entity.Revision)
-		assert.Equal(t, true, entity.Initialized())
-		assert.Equal(t, 2, entity.State.Value())
+		if assert.Equal(t, true, entity.Initialized()) {
+			assert.Equal(t, 2, entity.State.Value())
+		}
 	}
 }
 

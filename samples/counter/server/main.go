@@ -16,7 +16,7 @@ import (
 )
 
 func configureTracing() (func(), error) {
-	exporter, err := we.JaegerExporter()
+	exporter, err := we.HoneycombExporter(context.Background(), "a8204376beaa2c03a29cb7410379e00e", "counter")
 	if err != nil {
 		return nil, err
 	}

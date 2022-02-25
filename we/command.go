@@ -50,7 +50,7 @@ func (f CommandHandlerFunction[T, C]) HandleRemoteCommand(ctx context.Context, c
 		return errors.New("unsupported encoding")
 	}
 
-	if err := json.Unmarshal(cmd.Payload.Data, &command); err != nil {
+	if err := json.UnmarshalContext(ctx, cmd.Payload.Data, &command); err != nil {
 		return err
 	}
 
