@@ -15,6 +15,7 @@ import (
 )
 
 var Live = wire.NewSet(
+	EventsTableNameFromEnvironment,
 	DefaultAWSConfig,
 	Client,
 	NewEventStore,
