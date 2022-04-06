@@ -15,5 +15,5 @@ type EntityID struct {
 }
 
 func (e *Entity[T]) Initialized() bool {
-	return e.State != nil
+	return e.Revision != InitialRevision
 }
