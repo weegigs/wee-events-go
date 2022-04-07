@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/testcontainers/testcontainers-go"
@@ -55,6 +56,12 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 		ctx,
 		config.WithRegion("us-east-1"),
 		config.WithEndpointResolverWithOptions(customResolver),
+		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
+			Value: aws.Credentials{
+				AccessKeyID: "dummy", SecretAccessKey: "dummy", SessionToken: "dummy",
+				Source: "Hard-coded credentials; values are irrelevant for local DynamoDB",
+			},
+		}),
 	)
 	if err != nil {
 		return nil, nil, err
