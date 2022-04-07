@@ -44,7 +44,7 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 				return aws.Endpoint{
 					PartitionID:   "aws",
 					URL:           fmt.Sprintf("http://%s:%s", host, port),
-					SigningRegion: "ap-southeast-2",
+					SigningRegion: "us-east-1",
 				}, nil
 			}
 			return aws.Endpoint{}, fmt.Errorf("unknown endpoint requested")
@@ -53,7 +53,7 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 
 	cfg, err := config.LoadDefaultConfig(
 		ctx,
-		config.WithRegion("us-west-2"),
+		config.WithRegion("us-west-1"),
 		config.WithEndpointResolverWithOptions(customResolver),
 	)
 	if err != nil {
