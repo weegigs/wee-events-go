@@ -53,7 +53,7 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 
 	cfg, err := config.LoadDefaultConfig(
 		ctx,
-		config.WithRegion("us-west-1"),
+		config.WithRegion("us-east-1"),
 		config.WithEndpointResolverWithOptions(customResolver),
 	)
 	if err != nil {
