@@ -23,6 +23,18 @@ func (c *CommandDispatcher[T]) Dispatch(ctx context.Context, entity Entity[T], c
 	panic("implement me")
 }
 
+func CommandNotFound(command CommandName) CommandNotFoundError {
+	return CommandNotFoundError{Command: command}
+}
+
+type CommandNotFoundError struct {
+	Command CommandName
+}
+
+func (e CommandNotFoundError) Error() string {
+	return fmt.Sprintf("unknown command: %s", e.Command)
+}
+
 type RoutedDispatcher[T any] struct {
 	Publish  EventPublisher
 	Handlers CommandHandlers[T]
@@ -39,18 +51,6 @@ func (d *RoutedDispatcher[T]) Dispatch(ctx context.Context, entity Entity[T], co
 	}
 
 	return execute(ctx, handler, command, entity, d.Publish)
-}
-
-func CommandNotFound(command CommandName) CommandNotFoundError {
-	return CommandNotFoundError{Command: command}
-}
-
-type CommandNotFoundError struct {
-	Command CommandName
-}
-
-func (e CommandNotFoundError) Error() string {
-	return fmt.Sprintf("unknown command: %s", e.Command)
 }
 
 func execute[T any](ctx context.Context, handler CommandHandler[T], command Command, state Entity[T], publish EventPublisher) (bool, error) {

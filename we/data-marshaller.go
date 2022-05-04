@@ -1,9 +1,8 @@
 package we
 
 import (
+	"encoding/json"
 	"fmt"
-
-	"github.com/goccy/go-json"
 )
 
 type InvalidEncodingError struct {

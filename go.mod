@@ -13,7 +13,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.13.0
 	github.com/aws/constructs-go/constructs/v10 v10.0.9
 	github.com/aws/smithy-go v1.10.0
-	github.com/goccy/go-json v0.9.4
 	github.com/google/wire v0.5.0
 	github.com/iancoleman/strcase v0.2.0
 	github.com/oklog/ulid/v2 v2.0.2
