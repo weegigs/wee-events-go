@@ -2,6 +2,10 @@ package we
 
 type EntityType string
 
+func (et EntityType) String() string {
+  return string(et)
+}
+
 type EntityTyped interface {
   EntityType() EntityType
 }
