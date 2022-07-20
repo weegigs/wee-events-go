@@ -28,8 +28,6 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
       continue
     }
 
-    // _, span := otel.Tracer(tracerName).Start(ctx, fmt.Sprintf("apply %s", eventType))
-    // defer span.End()
     if err := reducer.Reduce(&state, &event); err != nil {
       return Entity[T]{}, errors.Wrap(
         err,
