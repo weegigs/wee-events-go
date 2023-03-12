@@ -8,6 +8,7 @@ services:
       - "6832:6832/udp"
       - "14268:14268"
       - "16686:16686"
+
   dynamodb:
     image: instructure/dynamo-local-admin
     ports:
@@ -27,3 +28,6 @@ services:
     ports:
       - "2113:2113"
       - "1113:1113"
+
+
+

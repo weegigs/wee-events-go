@@ -17,3 +17,6 @@
 # IDE
 /.idea
 
+/.direnv
+/.vscode
+
