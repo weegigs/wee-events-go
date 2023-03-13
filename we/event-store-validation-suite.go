@@ -11,6 +11,7 @@ import (
 	"github.com/jaswdr/faker"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var entropy = ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
@@ -40,6 +41,7 @@ func (s *EventStoreValidationSuite) Run(t *testing.T) {
 	t.Run("loads a revision with events", s.LoadsRevisionWithEvents)
 	t.Run("publishes single event", s.PublishesSingleEvent)
 	t.Run("publishes multiple events in a single transaction", s.PublishesMultipleEvents)
+	t.Run("preserves the event content when recording", s.ValidateEventContent)
 	t.Run("published with an expected initial revision", s.PublishesWithAnExpectedInitialRevision)
 	t.Run("published with an expected revision", s.PublishesWithAnExpectedRevision)
 	t.Run("returns a revision conflict with an initial revision", s.RevisionConflictOnInitialRevision)
@@ -123,7 +125,28 @@ func (s *EventStoreValidationSuite) PublishesMultipleEvents(t *testing.T) {
 	assert.Nil(t, err)
 	err = s.ExpectEventCount(t, aggregateId, 17)
 	assert.Nil(t, err)
+}
 
+func (s *EventStoreValidationSuite) ValidateEventContent(t *testing.T) {
+	events := s.MakeTestEvents(17)
+
+	aggregateId := s.MakeTestAggregateId()
+	err := s.store.Publish(s.ctx, aggregateId, Options(), events...)
+
+	assert.Nil(t, err)
+
+	aggregate, err := s.LoadAggregate(aggregateId)
+	assert.Nil(t, err)
+
+	require.Equal(t, len(events), len(aggregate.Events))
+	for i, event := range events {
+		assert.Equal(t, EventTypeOf(event), aggregate.Events[i].EventType)
+
+		e := StoreValidationEvent{}
+		err := UnmarshalFromData(aggregate.Events[i].Data, &e)
+		require.NoError(t, err)
+		assert.Equal(t, event, e)
+	}
 }
 
 func (s *EventStoreValidationSuite) LoadsRevisionWithEvents(t *testing.T) {
