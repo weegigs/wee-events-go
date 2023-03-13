@@ -1,59 +1,60 @@
 package ds
 
 import (
-	"context"
-	"errors"
-	"os"
+  "context"
+  "errors"
+  "os"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
+  "github.com/aws/aws-sdk-go-v2/aws"
+  "github.com/aws/aws-sdk-go-v2/config"
+  "github.com/aws/aws-sdk-go-v2/service/dynamodb"
+  "go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 
-	"github.com/google/wire"
-	"github.com/weegigs/wee-events-go/we"
+  "github.com/google/wire"
+
+  "github.com/weegigs/wee-events-go/we"
 )
 
 var Live = wire.NewSet(
-	EventsTableNameFromEnvironment,
-	DefaultAWSConfig,
-	Client,
-	NewEventStore,
-	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
+  EventsTableNameFromEnvironment,
+  DefaultAWSConfig,
+  Client,
+  NewEventStore,
+  wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 
 var Local = wire.NewSet(
-	LocalDynamoStore,
-	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
+  LocalDynamoStore,
+  wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 
 var Test = wire.NewSet(
-	TestStore,
-	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
+  TestStore,
+  wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 
 func EventsTableNameFromEnvironment() (EventStoreTableName, error) {
-	table := os.Getenv("DYNAMODB_EVENTS_TABLE_NAME")
-	if len(table) == 0 {
-		return "", errors.New("DYNAMODB_EVENTS_TABLE_NAME is not set")
-	}
+  table := os.Getenv("EVENTS_DYNAMODB_TABLE_NAME")
+  if len(table) == 0 {
+    return "", errors.New("EVENTS_DYNAMODB_TABLE_NAME is not set")
+  }
 
-	return EventStoreTableName(table), nil
+  return EventStoreTableName(table), nil
 }
 
 func LocalEventsTableName() EventStoreTableName {
-	return EventStoreTableName("wee-events")
+  return EventStoreTableName("wee-events")
 }
 
 func TestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
-	return DynamoTestStore(ctx)
+  return DynamoTestStore(ctx)
 }
 
 func DefaultAWSConfig(ctx context.Context) (aws.Config, error) {
-	return config.LoadDefaultConfig(ctx)
+  return config.LoadDefaultConfig(ctx)
 }
 
 func Client(cfg aws.Config) *dynamodb.Client {
-	otelaws.AppendMiddlewares(&cfg.APIOptions)
-	return dynamodb.NewFromConfig(cfg)
+  otelaws.AppendMiddlewares(&cfg.APIOptions)
+  return dynamodb.NewFromConfig(cfg)
 }
