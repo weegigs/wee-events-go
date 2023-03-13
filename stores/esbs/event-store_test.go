@@ -27,7 +27,7 @@ func TestEventStore(t *testing.T) {
 	})
 
 	t.Run("should batch publish", func(t *testing.T) {
-		var testId = we.AggregateId{Type: "test", Key: "multiple"}
+		var testId = we.AggregateId{Type: "test", Key: "should-batch-publish"}
 
 		events := createEvents(10)
 
