@@ -4,18 +4,18 @@ go 1.19
 
 require (
 	github.com/EventStore/EventStore-Client-Go v1.0.2
-	github.com/aws/aws-cdk-go/awscdk/v2 v2.68.0
-	github.com/aws/aws-sdk-go-v2 v1.17.5
-	github.com/aws/aws-sdk-go-v2/config v1.18.15
-	github.com/aws/aws-sdk-go-v2/credentials v1.13.15
-	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.10.17
-	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.4.44
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.19.0
-	github.com/aws/constructs-go/constructs/v10 v10.1.273
+	github.com/aws/aws-cdk-go/awscdk/v2 v2.73.0
+	github.com/aws/aws-sdk-go-v2 v1.17.8
+	github.com/aws/aws-sdk-go-v2/config v1.18.21
+	github.com/aws/aws-sdk-go-v2/credentials v1.13.20
+	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.10.21
+	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.4.48
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.19.4
+	github.com/aws/constructs-go/constructs/v10 v10.1.307
 	github.com/aws/smithy-go v1.13.5
 	github.com/google/wire v0.5.0
 	github.com/iancoleman/strcase v0.2.0
-	github.com/nats-io/nats.go v1.24.0
+	github.com/nats-io/nats.go v1.25.0
 	github.com/oklog/ulid/v2 v2.1.0
 	github.com/pkg/errors v0.9.1
 	github.com/rs/zerolog v1.29.0
@@ -28,13 +28,13 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.14.0
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.14.0
 	go.opentelemetry.io/otel/sdk v1.14.0
-	google.golang.org/grpc v1.53.0
+	google.golang.org/grpc v1.54.0
 )
 
 require (
 	github.com/ajg/form v1.5.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.20.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.14.4 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.14.8 // indirect
 	github.com/cdklabs/awscdk-asset-awscli-go/awscliv1/v2 v2.2.97 // indirect
 	github.com/cdklabs/awscdk-asset-kubectl-go/kubectlv20/v2 v2.1.1 // indirect
 	github.com/cdklabs/awscdk-asset-node-proxy-agent-go/nodeproxyagentv5/v2 v2.0.77 // indirect
@@ -45,11 +45,11 @@ require (
 	github.com/klauspost/compress v1.16.0 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
-	github.com/mattn/go-isatty v0.0.17 // indirect
+	github.com/mattn/go-isatty v0.0.18 // indirect
 	github.com/moby/patternmatcher v0.5.0 // indirect
 	github.com/moby/sys/sequential v0.5.0 // indirect
 	github.com/nats-io/nats-server/v2 v2.9.15 // indirect
-	github.com/nats-io/nkeys v0.3.0 // indirect
+	github.com/nats-io/nkeys v0.4.4 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	golang.org/x/crypto v0.6.0 // indirect
 )
@@ -59,18 +59,18 @@ require (
 	github.com/Masterminds/semver/v3 v3.2.0 // indirect
 	github.com/Microsoft/go-winio v0.5.2 // indirect
 	github.com/avast/retry-go v3.0.0+incompatible
-	github.com/aws/aws-lambda-go v1.38.0
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.12.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.29 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.23 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.30 // indirect
-	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.14.5 // indirect
+	github.com/aws/aws-lambda-go v1.39.1
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.13.2 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.1.32 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.4.26 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.3.33 // indirect
+	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.14.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.9.11 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.7.23 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.9.23 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.12.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sts v1.18.5 // indirect
-	github.com/aws/jsii-runtime-go v1.77.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.7.26 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.9.26 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.12.8 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.18.9 // indirect
+	github.com/aws/jsii-runtime-go v1.80.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.2.0 // indirect
 	github.com/containerd/containerd v1.6.19 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -102,11 +102,11 @@ require (
 	go.opentelemetry.io/otel/metric v0.37.0 // indirect
 	go.opentelemetry.io/otel/trace v1.14.0 // indirect
 	go.opentelemetry.io/proto/otlp v0.19.0 // indirect
-	golang.org/x/mod v0.8.0 // indirect
-	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/mod v0.9.0 // indirect
+	golang.org/x/net v0.8.0 // indirect
 	golang.org/x/sys v0.6.0 // indirect
-	golang.org/x/text v0.7.0 // indirect
-	golang.org/x/tools v0.6.0 // indirect
+	golang.org/x/text v0.8.0 // indirect
+	golang.org/x/tools v0.7.0 // indirect
 	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
