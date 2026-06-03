@@ -6,28 +6,26 @@ wee-events, **`we`**
 
 ## Tools
 
-### golang
-
-This package requires generics so you'll need at least version 1.18 of [golang][].
-
-At time of writing (Feb 2022) `1.18` is still in beta.
-
-## Getting started
-
-Install project dependencies
+This project uses [mise](https://mise.jdx.dev) to manage its toolchain
+(Go 1.26, golangci-lint, gopls, natscli) and tasks. Install it, then provision:
 
 ```sh
-go get
+mise install
 ```
+
+## Getting started
 
 Run the unit tests to ensure everything is 🕺
 
 ```sh
-go test -v
+mise run test
 ```
+
+See `.mise.toml` for the full task list (`build`, `wire`, `lint`, `fix`,
+`update-deps`, `test:integration`).
 
 ## Documentation
 
 In the `documents` directory you'll find notes on
 
-[golang]: https://tip.golang.org/doc/go1.18
+[golang]: https://go.dev/doc/go1.26
