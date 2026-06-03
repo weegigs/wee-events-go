@@ -65,7 +65,7 @@ func (s *EventStoreValidationSuite) MakeTestEvent() StoreValidationEvent {
 
 func (s *EventStoreValidationSuite) MakeTestEvents(count int) []DomainEvent {
 	events := make([]DomainEvent, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		events[i] = s.MakeTestEvent()
 	}
 

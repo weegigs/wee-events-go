@@ -40,7 +40,7 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 	}
 
 	customResolver := aws.EndpointResolverWithOptionsFunc(
-		func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+		func(service, region string, options ...any) (aws.Endpoint, error) {
 			if service == dynamodb.ServiceID {
 				return aws.Endpoint{
 					PartitionID:   "aws",
