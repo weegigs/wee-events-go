@@ -3,7 +3,6 @@ package we
 import (
 	"context"
 
-	"go.opentelemetry.io/otel/exporters/jaeger"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
@@ -29,6 +28,13 @@ func HoneycombExporter(ctx context.Context, team string, dataset string) (*otlpt
 	return otlptrace.New(ctx, client)
 }
 
-func JaegerExporter() (*jaeger.Exporter, error) {
-	return jaeger.New(jaeger.WithCollectorEndpoint(jaeger.WithEndpoint("http://localhost:14268/api/traces")))
+// OTLPExporter creates an OTLP/gRPC span exporter targeting endpoint (host:port)
+// over an insecure connection. Use it for local collectors such as the Jaeger
+// all-in-one container, which ingests OTLP on :4317.
+func OTLPExporter(ctx context.Context, endpoint string) (*otlptrace.Exporter, error) {
+	client := otlptracegrpc.NewClient(
+		otlptracegrpc.WithEndpoint(endpoint),
+		otlptracegrpc.WithInsecure(),
+	)
+	return otlptrace.New(ctx, client)
 }
