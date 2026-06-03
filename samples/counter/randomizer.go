@@ -8,8 +8,8 @@ import (
 type Randomizer = func() int
 
 func PseudoRandomizer() Randomizer {
-	rand.Seed(time.Now().UnixNano())
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	return func() int {
-		return rand.Intn(1000)
+		return r.Intn(1000)
 	}
 }

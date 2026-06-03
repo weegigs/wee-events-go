@@ -8,11 +8,11 @@ import (
 
 // commands
 var increment we.CommandHandlerFunction[Counter, Increment] = func(ctx context.Context, cmd Increment, state we.Entity[Counter], publish we.EventPublisher) error {
-	return publish(ctx, state.Aggregate, we.Options(), Incremented{Amount: cmd.Amount})
+	return publish(ctx, state.Aggregate, we.Options(), Incremented(cmd))
 }
 
 var decrement we.CommandHandlerFunction[Counter, Decrement] = func(ctx context.Context, cmd Decrement, state we.Entity[Counter], publish we.EventPublisher) error {
-	return publish(ctx, state.Aggregate, we.Options(), Decremented{Amount: cmd.Amount})
+	return publish(ctx, state.Aggregate, we.Options(), Decremented(cmd))
 }
 
 func randomize(randomizer Randomizer) we.CommandHandler[Counter] {

@@ -11,7 +11,7 @@ type EntityTyped interface {
 }
 
 func EntityTypeOf(state any) EntityType {
-	if named, ok := state.(EntityTyped); ok == true {
+	if named, ok := state.(EntityTyped); ok {
 		return named.EntityType()
 	}
 

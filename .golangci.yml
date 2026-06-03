@@ -1,0 +1,10 @@
+version: "2"
+
+linters:
+  exclusions:
+    rules:
+      # ST1012: sentinel error vars need not be Err-prefixed. Named errors
+      # like RevisionConflict read fine without it (cf. io.EOF in the stdlib).
+      - linters:
+          - staticcheck
+        text: "ST1012"

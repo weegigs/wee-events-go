@@ -46,7 +46,7 @@ func (s *entityService[T]) Execute(ctx context.Context, id AggregateId, command 
 		return Entity[T]{}, err
 	}
 
-	if published == false {
+	if !published {
 		return entity, nil
 	}
 

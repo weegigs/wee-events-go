@@ -12,7 +12,7 @@ type Named interface {
 }
 
 func NameOf(value any) string {
-	if typed, ok := value.(Named); ok == true {
+	if typed, ok := value.(Named); ok {
 		return typed.TypeName()
 	}
 

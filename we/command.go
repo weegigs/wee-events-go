@@ -24,7 +24,7 @@ func CommandNameOf(command Command) CommandName {
 	case RemoteCommand:
 		name = cmd.CommandName
 	default:
-		if named, ok := command.(NamedCommand); ok == true {
+		if named, ok := command.(NamedCommand); ok {
 			return named.CommandName()
 		}
 
