@@ -1,0 +1,46 @@
+# Development environment for wee-events-go.
+# Replaces the former Nix flake. Tools install with `mise install`;
+# project tasks run with `mise run <task>`.
+
+[tools]
+go = "1.26"
+golangci-lint = "latest"
+"go:golang.org/x/tools/gopls" = "latest"
+"go:github.com/nats-io/natscli/nats" = "latest"
+
+# wire is declared as a go.mod `tool` directive — run it via `go tool wire`.
+
+[tasks.test]
+description = "Run all unit tests"
+run = "go test -v ./..."
+
+[tasks.build]
+description = "Build the counter sample server"
+run = "go build -o counter-server ./samples/counter/server"
+
+[tasks.wire]
+description = "Regenerate Wire dependency-injection code"
+run = "go tool wire ./..."
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run"
+
+[tasks.fix]
+description = "Apply Go 1.26 modernisers and gofmt simplification"
+run = ["go fix ./...", "gofmt -s -w ."]
+
+[tasks.tidy]
+description = "Tidy go.mod / go.sum"
+run = "go mod tidy"
+
+[tasks.update-deps]
+description = "Update all dependencies to latest and tidy"
+run = ["go get -u ./...", "go mod tidy"]
+
+[tasks."test:integration"]
+description = "Run integration tests (requires Docker)"
+run = [
+  "docker compose -f local/docker-compose.yml up -d",
+  "go test -v ./stores/...",
+]
