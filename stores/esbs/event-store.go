@@ -91,7 +91,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 		// valid non-initial revision is 1. A value of 0 would underflow the
 		// uint64 below and never maps to a real ESDB stream revision.
 		if r == 0 {
-			return errors.New("invalid expected revision")
+			return errors.New("expected revision must be >= 1")
 		}
 		r = r - 1
 
@@ -104,7 +104,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 
 	_, err = es.db.AppendToStream(ctx, streamId, esdbOptions, esevents...)
 	if err != nil {
-		if err == esdb.ErrWrongExpectedStreamRevision {
+		if errors.Is(err, esdb.ErrWrongExpectedStreamRevision) {
 			return we.RevisionConflict
 		}
 
@@ -159,7 +159,7 @@ func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, fr
 		}, uint64(es.pageSize),
 	)
 	if err != nil {
-		if err == esdb.ErrStreamNotFound {
+		if errors.Is(err, esdb.ErrStreamNotFound) {
 			return nil, esdb.End{}, nil
 		}
 

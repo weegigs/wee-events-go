@@ -16,7 +16,7 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 
 	ctr, err := testcontainers.Run(
 		ctx,
-		"amazon/dynamodb-local",
+		"amazon/dynamodb-local:2.5.4",
 		testcontainers.WithExposedPorts("8000/tcp"),
 		testcontainers.WithWaitStrategy(wait.ForListeningPort("8000")),
 	)

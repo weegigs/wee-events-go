@@ -43,6 +43,7 @@ func (encoder ResourceEncoder[T]) Encode(w http.ResponseWriter, r *http.Request,
 	resource, err := serialize(e)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return err
 	}
 
 	resource["$id"] = e.Aggregate.Encode()
