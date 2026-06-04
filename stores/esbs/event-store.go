@@ -8,7 +8,7 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/EventStore/EventStore-Client-Go/esdb"
+	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -27,7 +27,7 @@ func PageSize(size int) EventStoreOption {
 	}
 }
 
-func NewEventStore(client *esdb.Client, options ...EventStoreOption) *ESDBEventStore {
+func NewEventStore(client *kurrentdb.Client, options ...EventStoreOption) *ESDBEventStore {
 	store := &ESDBEventStore{
 		db:       client,
 		pageSize: defaultPageSize,
@@ -41,7 +41,7 @@ func NewEventStore(client *esdb.Client, options ...EventStoreOption) *ESDBEventS
 }
 
 type ESDBEventStore struct {
-	db       *esdb.Client
+	db       *kurrentdb.Client
 	pageSize int
 }
 
@@ -64,24 +64,24 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 		}
 	}
 
-	esevents := make([]esdb.EventData, len(events))
+	esevents := make([]kurrentdb.EventData, len(events))
 	for i, event := range events {
 		data, err := json.Marshal(event)
 		if err != nil {
 			return fmt.Errorf("failed to marshal event: %w", err)
 		}
 
-		esevents[i] = esdb.EventData{
-			ContentType: esdb.JsonContentType,
+		esevents[i] = kurrentdb.EventData{
+			ContentType: kurrentdb.ContentTypeJson,
 			EventType:   we.EventTypeOf(event).String(),
 			Data:        data,
 			Metadata:    md,
 		}
 	}
 
-	var revision esdb.ExpectedRevision = esdb.Any{}
+	var state kurrentdb.StreamState = kurrentdb.Any{}
 	if options.ExpectedRevision == we.InitialRevision {
-		revision = esdb.NoStream{}
+		state = kurrentdb.NoStream{}
 	} else if options.ExpectedRevision != "" {
 		// Revisions are encoded as hex on the read path (%026x of the event
 		// number), so they must be decoded as base 16 — a base-10 decode breaks
@@ -99,16 +99,17 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 		}
 		r = r - 1
 
-		revision = esdb.Revision(r)
+		state = kurrentdb.Revision(r)
 	}
 
-	esdbOptions := esdb.AppendToStreamOptions{
-		ExpectedRevision: revision,
+	esdbOptions := kurrentdb.AppendToStreamOptions{
+		StreamState: state,
 	}
 
 	_, err = es.db.AppendToStream(ctx, streamId, esdbOptions, esevents...)
 	if err != nil {
-		if errors.Is(err, esdb.ErrWrongExpectedStreamRevision) {
+		var kErr *kurrentdb.Error
+		if errors.As(err, &kErr) && kErr.Code() == kurrentdb.ErrorCodeWrongExpectedVersion {
 			return we.RevisionConflict
 		}
 
@@ -121,7 +122,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 func (es *ESDBEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
 	var events []we.RecordedEvent
 
-	var position esdb.StreamPosition = esdb.Start{}
+	var position kurrentdb.StreamPosition = kurrentdb.Start{}
 	for {
 		page, last, err := es.read(ctx, id, position)
 		if err != nil {
@@ -149,34 +150,26 @@ func (es *ESDBEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggre
 	}, nil
 }
 
-func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, from esdb.StreamPosition) ([]we.RecordedEvent, esdb.StreamPosition, error) {
-	if revision, ok := from.(esdb.StreamRevision); ok {
-		from = esdb.StreamRevision{
+func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, from kurrentdb.StreamPosition) ([]we.RecordedEvent, kurrentdb.StreamPosition, error) {
+	if revision, ok := from.(kurrentdb.StreamRevision); ok {
+		from = kurrentdb.StreamRevision{
 			Value: revision.Value + 1,
 		}
 	}
 
 	streamId := aggregate.Encode().String()
 	stream, err := es.db.ReadStream(
-		ctx, streamId, esdb.ReadStreamOptions{
+		ctx, streamId, kurrentdb.ReadStreamOptions{
 			From: from,
 		}, uint64(es.pageSize),
 	)
 	if err != nil {
-		if errors.Is(err, esdb.ErrStreamNotFound) {
-			return nil, esdb.End{}, nil
-		}
-
-		if errors.Is(err, io.EOF) {
-			return nil, esdb.End{}, nil
-		}
-
-		return nil, esdb.End{}, fmt.Errorf("failed to read stream: %w", err)
+		return nil, kurrentdb.End{}, fmt.Errorf("failed to read stream: %w", err)
 	}
 	defer stream.Close()
 
 	var events []we.RecordedEvent
-	var last esdb.StreamPosition
+	var last kurrentdb.StreamPosition
 
 	// KAO: Notes for the future: Read in batches, so I can parallelize the unmarshalling
 	for {
@@ -186,7 +179,16 @@ func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, fr
 		}
 
 		if err != nil {
-			return nil, esdb.End{}, fmt.Errorf("failed to read event: %w", err)
+			// The KurrentDB client surfaces a missing stream on the first Recv
+			// as ErrorCodeResourceNotFound (the legacy ErrStreamNotFound
+			// sentinel was removed). An absent stream is the initial state, not
+			// a failure, so it loads as an empty aggregate.
+			var kErr *kurrentdb.Error
+			if errors.As(err, &kErr) && kErr.Code() == kurrentdb.ErrorCodeResourceNotFound {
+				return nil, kurrentdb.End{}, nil
+			}
+
+			return nil, kurrentdb.End{}, fmt.Errorf("failed to read event: %w", err)
 		}
 
 		e := event.OriginalEvent()
@@ -198,7 +200,7 @@ func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, fr
 		var userMetadata map[string]string
 		if len(e.UserMetadata) > 0 {
 			if err := json.Unmarshal(e.UserMetadata, &userMetadata); err != nil {
-				return nil, esdb.End{}, fmt.Errorf("failed to unmarshal metadata: %w", err)
+				return nil, kurrentdb.End{}, fmt.Errorf("failed to unmarshal metadata: %w", err)
 			}
 		}
 
@@ -222,7 +224,7 @@ func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, fr
 
 		events = append(events, recorded)
 
-		last = esdb.Revision(e.EventNumber)
+		last = kurrentdb.Revision(e.EventNumber)
 	}
 
 	return events, last, nil

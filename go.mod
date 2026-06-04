@@ -5,7 +5,6 @@ go 1.26
 toolchain go1.26.4
 
 require (
-	github.com/EventStore/EventStore-Client-Go v1.0.2
 	github.com/avast/retry-go/v4 v4.7.0
 	github.com/aws/aws-cdk-go/awscdk/v2 v2.257.0
 	github.com/aws/aws-sdk-go-v2 v1.41.11
@@ -18,6 +17,7 @@ require (
 	github.com/aws/smithy-go v1.27.0
 	github.com/google/wire v0.7.0
 	github.com/iancoleman/strcase v0.3.0
+	github.com/kurrent-io/KurrentDB-Client-Go v1.2.0
 	github.com/nats-io/nats.go v1.52.0
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/rs/zerolog v1.35.1
@@ -45,7 +45,6 @@ require (
 	github.com/cdklabs/cloud-assembly-schema-go/awscdkcloudassemblyschema/v53 v53.28.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/continuity v0.4.4 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect
@@ -54,8 +53,6 @@ require (
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/ebitengine/purego v0.10.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
-	github.com/gofrs/uuid v4.4.0+incompatible // indirect
-	github.com/golang/mock v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
@@ -115,7 +112,6 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
-	github.com/opencontainers/runc v1.1.3 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws v0.69.0
 	go.opentelemetry.io/otel/metric v1.44.0 // indirect

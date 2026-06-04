@@ -5,19 +5,16 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/EventStore/EventStore-Client-Go/esdb"
+	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// eventStoreImage pins a known-working EventStoreDB image.
-//
-// KAO - `:latest` now resolves to a 24.x+/KurrentDB build that removed the
-// legacy external TCP protocol and rejects EVENTSTORE_EXT_TCP_PORT /
-// EVENTSTORE_ENABLE_EXTERNAL_TCP (the container exits with code 1, FTL
-// "The option ExtTcpPort is not a known option"). 23.10.0-jammy is the last
-// LTS published under the eventstore/eventstore name and speaks the gRPC
-// protocol expected by EventStore-Client-Go v1.0.2.
+// eventStoreImage pins a known-working EventStoreDB server image. The
+// KurrentDB client speaks the gRPC streams protocol, which this 23.10 LTS
+// server serves; the `esdb://` connection scheme remains a supported alias.
+// 23.10.0-jammy is the last LTS published under the eventstore/eventstore
+// name and avoids the 24.x+/KurrentDB env-var churn around external TCP.
 const eventStoreImage = "eventstore/eventstore:23.10.0-jammy"
 
 func NewESDBTestStore(ctx context.Context, options ...EventStoreOption) (*ESDBEventStore, func(), error) {
@@ -53,12 +50,12 @@ func NewESDBTestStore(ctx context.Context, options ...EventStoreOption) (*ESDBEv
 
 	connection := fmt.Sprintf("esdb://admin:changeit@%s:%s?tls=false", host, port.Port())
 
-	settings, err := esdb.ParseConnectionString(connection)
+	settings, err := kurrentdb.ParseConnectionString(connection)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	client, err := esdb.NewClient(settings)
+	client, err := kurrentdb.NewClient(settings)
 	if err != nil {
 		return nil, nil, err
 	}
