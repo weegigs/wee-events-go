@@ -10,7 +10,7 @@ import (
 // Creates a new ESDBEventStore instance configured to connect to a local, insecure, esdb instance.
 func NewLocalESDBStore(ctx context.Context, options ...EventStoreOption) (*ESDBEventStore, error) {
 
-	connection := fmt.Sprintf("esdb://admin:changeit@%s:%s?tls=false", "localhost", "2113")
+	connection := fmt.Sprintf("kurrentdb://admin:changeit@%s:%s?tls=false", "localhost", "2113")
 
 	settings, err := kurrentdb.ParseConnectionString(connection)
 	if err != nil {

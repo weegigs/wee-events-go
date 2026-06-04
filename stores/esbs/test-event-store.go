@@ -10,24 +10,18 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// eventStoreImage pins a known-working EventStoreDB server image. The
-// KurrentDB client speaks the gRPC streams protocol, which this 23.10 LTS
-// server serves; the `esdb://` connection scheme remains a supported alias.
-// 23.10.0-jammy is the last LTS published under the eventstore/eventstore
-// name and avoids the 24.x+/KurrentDB env-var churn around external TCP.
-const eventStoreImage = "eventstore/eventstore:23.10.0-jammy"
+// kurrentDBImage pins the KurrentDB server (the EventStoreDB successor) to a
+// concrete LTS tag. The store talks only gRPC append/read, so the node needs
+// nothing beyond insecure mode — projections and AtomPub are left off. The
+// HTTP/gRPC port and cluster size default to 2113 and 1 respectively.
+const kurrentDBImage = "kurrentplatform/kurrentdb:26.0.3"
 
 func NewESDBTestStore(ctx context.Context, options ...EventStoreOption) (*ESDBEventStore, func(), error) {
 	ctr, err := testcontainers.Run(
 		ctx,
-		eventStoreImage,
+		kurrentDBImage,
 		testcontainers.WithEnv(map[string]string{
-			"EVENTSTORE_CLUSTER_SIZE":               "1",
-			"EVENTSTORE_RUN_PROJECTIONS":            "All",
-			"EVENTSTORE_START_STANDARD_PROJECTIONS": "true",
-			"EVENTSTORE_HTTP_PORT":                  "2113",
-			"EVENTSTORE_INSECURE":                   "true",
-			"EVENTSTORE_ENABLE_ATOM_PUB_OVER_HTTP":  "true",
+			"KURRENTDB_INSECURE": "true",
 		}),
 		testcontainers.WithExposedPorts("2113/tcp"),
 		testcontainers.WithWaitStrategy(
@@ -48,7 +42,7 @@ func NewESDBTestStore(ctx context.Context, options ...EventStoreOption) (*ESDBEv
 		return nil, nil, err
 	}
 
-	connection := fmt.Sprintf("esdb://admin:changeit@%s:%s?tls=false", host, port.Port())
+	connection := fmt.Sprintf("kurrentdb://admin:changeit@%s:%s?tls=false", host, port.Port())
 
 	settings, err := kurrentdb.ParseConnectionString(connection)
 	if err != nil {

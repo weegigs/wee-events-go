@@ -41,7 +41,7 @@ Ad-hoc Go commands pick up the pinned toolchain via mise, e.g.
 `mise exec -- go test -v ./we/...`.
 
 ### Running Integration Tests
-Integration tests require Docker containers for EventStore and NATS:
+Integration tests require Docker containers for KurrentDB and NATS:
 
 ```bash
 just test-integration
@@ -66,7 +66,7 @@ This is an event sourcing framework implementing CQRS (Command Query Responsibil
 - `/we` - Core event sourcing framework (uses Go generics extensively)
 - `/stores` - Event store implementations:
   - `/ds` - AWS DynamoDB backend
-  - `/esbs` - EventStore DB backend
+  - `/esbs` - KurrentDB backend (formerly EventStore DB)
   - `/jetstream` - NATS JetStream backend
 - `/samples/counter` - Complete example showing framework usage
 - `/connectors/wehttp` - HTTP adapter for REST APIs
