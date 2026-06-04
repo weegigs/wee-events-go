@@ -66,6 +66,9 @@ func TestDynamoDBStore(t *testing.T) {
 		assert.Equal(t, 2, count)
 
 		loaded, err := store.Load(ctx, aggregateId)
+		if !assert.Nil(t, err) {
+			return
+		}
 		assert.Equal(t, we.InitialRevision, loaded.Revision)
 	})
 }

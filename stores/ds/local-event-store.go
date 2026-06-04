@@ -6,11 +6,10 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	log "github.com/sirupsen/logrus"
+	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
 )
 
@@ -22,7 +21,9 @@ func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
 		return nil, err
 	}
 
-	client := dynamodb.NewFromConfig(cfg)
+	client := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
+		o.BaseEndpoint = aws.String("http://localhost:8000")
+	})
 
 	exists, err := tableExists(ctx, client, tableName)
 	if err != nil {
@@ -30,7 +31,9 @@ func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
 	}
 
 	if !exists {
-		createTable(ctx, client, tableName)
+		if err := createTable(ctx, client, tableName); err != nil {
+			return nil, err
+		}
 	}
 
 	store := NewEventStore(
@@ -41,26 +44,16 @@ func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
 	return store, nil
 }
 
-func localConfig(ctx context.Context) (aws.Config, error) {
-	config, err := config.LoadDefaultConfig(ctx,
-		config.WithRegion("us-east-1"),
-		config.WithEndpointResolver(aws.EndpointResolverFunc(
-			func(service, region string) (aws.Endpoint, error) {
-				return aws.Endpoint{URL: "http://localhost:8000"}, nil
-			})),
-		config.WithCredentialsProvider(credentials.StaticCredentialsProvider{
-			Value: aws.Credentials{
-				AccessKeyID: "dummy", SecretAccessKey: "dummy", SessionToken: "dummy",
-				Source: "Hard-coded credentials; values are irrelevant for local DynamoDB",
-			},
-		}))
-
-	if err != nil {
-		return aws.Config{}, err
+func localConfig(_ context.Context) (aws.Config, error) {
+	cfg := aws.Config{
+		Region: "us-east-1",
+		Credentials: credentials.NewStaticCredentialsProvider(
+			"dummy", "dummy", "dummy",
+		),
 	}
 
-	otelaws.AppendMiddlewares(&config.APIOptions)
-	return config, nil
+	otelaws.AppendMiddlewares(&cfg.APIOptions)
+	return cfg, nil
 }
 
 func tableExists(ctx context.Context, client *dynamodb.Client, name string) (bool, error) {
@@ -82,7 +75,7 @@ func tableExists(ctx context.Context, client *dynamodb.Client, name string) (boo
 }
 
 func createTable(ctx context.Context, client *dynamodb.Client, table string) error {
-	log.Info("creating events table")
+	log.Info().Msg("creating events table")
 
 	_, err := client.CreateTable(
 		ctx, &dynamodb.CreateTableInput{

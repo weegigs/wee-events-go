@@ -3,10 +3,12 @@ package ds
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"time"
 
-	"github.com/avast/retry-go"
+	"github.com/avast/retry-go/v4"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -14,7 +16,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/smithy-go"
-	"github.com/pkg/errors"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -116,7 +117,7 @@ func (ds *DynamoEventStore) read(ctx context.Context, id we.AggregateId) ([]we.R
 		for _, record := range items {
 			var evts []we.RecordedEvent
 			if err := json.Unmarshal([]byte(record.Events), &evts); err != nil {
-				return nil, errors.Wrap(err, "failed to unmarshal events")
+				return nil, fmt.Errorf("failed to unmarshal events: %w", err)
 			}
 			events = append(events, evts...)
 		}
@@ -283,7 +284,7 @@ func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.Aggregat
 	)
 
 	if err != nil && !isRevisionConflict(err) {
-		return errors.Wrap(err, "failed to publish events")
+		return fmt.Errorf("failed to publish events: %w", err)
 	}
 
 	return err

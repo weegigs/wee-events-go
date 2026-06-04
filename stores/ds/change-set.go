@@ -2,8 +2,7 @@ package ds
 
 import (
 	"encoding/json"
-
-	"github.com/pkg/errors"
+	"fmt"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -26,7 +25,7 @@ type LatestRecord struct {
 func (cs *ChangeSet) RecordedEvents() ([]we.RecordedEvent, error) {
 	var evts []we.RecordedEvent
 	if err := json.Unmarshal([]byte(cs.Events), &evts); err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal events")
+		return nil, fmt.Errorf("failed to unmarshal events: %w", err)
 	}
 
 	return evts, nil
