@@ -48,14 +48,14 @@ func WithExpectedRevision(expectedRevision Revision) PublishOption {
 
 func WithCorrelationId(correlationId CorrelationID) PublishOption {
 	return func(modifier *PublishOptions) {
-		modifier.RecordedEventMetadata.CorrelationId = correlationId
+		modifier.CorrelationId = correlationId
 	}
 }
 
 func WithCausationId(correlationId CorrelationID, causationId EventID) PublishOption {
 	return func(modifier *PublishOptions) {
-		modifier.RecordedEventMetadata.CausationId = causationId
-		modifier.RecordedEventMetadata.CorrelationId = correlationId
+		modifier.CausationId = causationId
+		modifier.CorrelationId = correlationId
 	}
 }
 
