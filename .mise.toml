@@ -1,6 +1,11 @@
 # Development environment for wee-events-go.
-# Replaces the former Nix flake. Tools install with `mise install`;
-# project tasks run with `mise run <task>`.
+# Replaces the former Nix flake and direnv setup. Tools install with
+# `mise install`; project tasks run with `mise run <task>`.
+
+[env]
+# Load a local .env if present (replaces the former direnv dotenv hook).
+# Missing file is tolerated.
+_.file = ".env"
 
 [tools]
 go = "1.26"

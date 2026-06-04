@@ -17,9 +17,10 @@
 # Dependency directories (remove the comment below to include it)
 # vendor/
 
+# Local environment (loaded by mise via .mise.toml [env])
+/.env
+
 # IDE
 /.idea
-
-/.direnv
 /.vscode
 
