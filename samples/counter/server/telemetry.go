@@ -3,7 +3,7 @@ package main
 import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
 )
 
 func traceResource() *resource.Resource {
@@ -11,8 +11,8 @@ func traceResource() *resource.Resource {
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
-			semconv.ServiceNameKey.String("counter"),
-			semconv.ServiceVersionKey.String("v0.1.0"),
+			semconv.ServiceName("counter"),
+			semconv.ServiceVersion("v0.1.0"),
 			attribute.String("environment", "development"),
 		),
 	)

@@ -2,25 +2,13 @@ package main
 
 import (
 	"context"
-	"math/rand"
 	"testing"
-	"time"
 
-	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/weegigs/wee-events-go/samples/counter"
 	"github.com/weegigs/wee-events-go/stores/ds"
 	"github.com/weegigs/wee-events-go/we"
 )
-
-var entropy = ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
-
-func createId() we.AggregateId {
-	return we.AggregateId{
-		Type: "go-test",
-		Key:  ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String(),
-	}
-}
 
 type test = func(t *testing.T)
 

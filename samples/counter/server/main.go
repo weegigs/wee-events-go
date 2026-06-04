@@ -8,7 +8,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/rs/zerolog/log"
 	"github.com/weegigs/wee-events-go/connectors/wehttp"
 	"github.com/weegigs/wee-events-go/we"
 	"go.opentelemetry.io/otel"
@@ -28,7 +28,7 @@ func configureTracing() (func(), error) {
 
 	cleanup := func() {
 		if err := tp.Shutdown(context.Background()); err != nil {
-			log.WithError(err).Info("tracing shutdown failed")
+			log.Info().Err(err).Msg("tracing shutdown failed")
 		}
 	}
 
@@ -41,14 +41,14 @@ func main() {
 
 	traceingCleanup, err := configureTracing()
 	if err != nil {
-		log.WithError(err).Info("failed to configure tracing")
+		log.Info().Err(err).Msg("failed to configure tracing")
 		os.Exit(1)
 	}
 	defer traceingCleanup()
 
 	service, serviceCleanup, err := local(context.Background())
 	if err != nil {
-		log.WithError(err).Info("failed to configure service")
+		log.Info().Err(err).Msg("failed to configure service")
 		os.Exit(1)
 	}
 	defer serviceCleanup()
@@ -62,10 +62,10 @@ func main() {
 	r.Mount("/", wehttp.NewHandler(service))
 
 	addr := ":9080"
-	log.WithField("addr", addr).Info("starting server")
+	log.Info().Str("addr", addr).Msg("starting server")
 
 	if err := http.ListenAndServe(addr, r); err != nil {
-		log.WithError(err).Info("server exited with error")
+		log.Info().Err(err).Msg("server exited with error")
 	}
 
 }

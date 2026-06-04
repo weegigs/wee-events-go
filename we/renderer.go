@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
 )
 
@@ -29,10 +28,7 @@ func (r *Renderer[T]) Render(ctx context.Context, aggregate Aggregate) (Entity[T
 		}
 
 		if err := reducer.Reduce(&state, &event); err != nil {
-			return Entity[T]{}, errors.Wrap(
-				err,
-				fmt.Sprintf("failed to process update with %s", eventType),
-			)
+			return Entity[T]{}, fmt.Errorf("failed to process update with %s: %w", eventType, err)
 		}
 	}
 
