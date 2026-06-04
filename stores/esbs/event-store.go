@@ -83,7 +83,11 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 	if options.ExpectedRevision == we.InitialRevision {
 		revision = esdb.NoStream{}
 	} else if options.ExpectedRevision != "" {
-		r, err := strconv.ParseUint(options.ExpectedRevision.String(), 10, 64)
+		// Revisions are encoded as hex on the read path (%026x of the event
+		// number), so they must be decoded as base 16 — a base-10 decode breaks
+		// for any revision >= 10 (0x0a), where the a-f digits are not valid
+		// decimal.
+		r, err := strconv.ParseUint(options.ExpectedRevision.String(), 16, 64)
 		if err != nil {
 			return fmt.Errorf("invalid expected revision: %w", err)
 		}

@@ -44,6 +44,7 @@ func (s *EventStoreValidationSuite) Run(t *testing.T) {
 	t.Run("preserves the event content when recording", s.ValidateEventContent)
 	t.Run("published with an expected initial revision", s.PublishesWithAnExpectedInitialRevision)
 	t.Run("published with an expected revision", s.PublishesWithAnExpectedRevision)
+	t.Run("published with an expected revision past ten events", s.PublishesWithAnExpectedRevisionPastTenEvents)
 	t.Run("returns a revision conflict with an initial revision", s.RevisionConflictOnInitialRevision)
 	t.Run("returns a revision conflict on subsequent revision", s.RevisionConflictOnSubsequentRevision)
 	t.Run("supports causation id", s.Causation)
@@ -287,5 +288,30 @@ func (s *EventStoreValidationSuite) PublishesWithAnExpectedRevision(t *testing.T
 	assert.Nil(t, err)
 
 	err = s.ExpectEventCount(t, aggregateId, 2)
+	assert.Nil(t, err)
+}
+
+// PublishesWithAnExpectedRevisionPastTenEvents guards against revision
+// encode/decode base mismatches: a store that records revisions in one base
+// but parses an expected revision in another silently breaks once the
+// revision exceeds a single hex digit (revision 10 is 0x0a). Seeding twelve
+// events forces that boundary before the expected-revision round-trip.
+func (s *EventStoreValidationSuite) PublishesWithAnExpectedRevisionPastTenEvents(t *testing.T) {
+	aggregateId := s.MakeTestAggregateId()
+
+	err := s.store.Publish(s.ctx, aggregateId, Options(), s.MakeTestEvents(12)...)
+	if !assert.Nil(t, err) {
+		return
+	}
+
+	loaded, err := s.store.Load(s.ctx, aggregateId)
+	if !assert.Nil(t, err) {
+		return
+	}
+
+	err = s.store.Publish(s.ctx, aggregateId, Options(WithExpectedRevision(loaded.Revision)), s.MakeTestEvent())
+	assert.Nil(t, err)
+
+	err = s.ExpectEventCount(t, aggregateId, 13)
 	assert.Nil(t, err)
 }
