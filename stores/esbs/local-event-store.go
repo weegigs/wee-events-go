@@ -18,6 +18,10 @@ func NewLocalESDBStore(ctx context.Context, options ...EventStoreOption) (*ESDBE
 	}
 
 	client, err := esdb.NewClient(settings)
+	if err != nil {
+		return nil, err
+	}
+
 	store := NewEventStore(client, options...)
 
 	return store, nil

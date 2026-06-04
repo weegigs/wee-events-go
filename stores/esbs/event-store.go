@@ -3,12 +3,12 @@ package esdbs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 
 	"github.com/EventStore/EventStore-Client-Go/esdb"
-	"github.com/pkg/errors"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -48,11 +48,11 @@ type ESDBEventStore struct {
 func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
 	streamId := aggregateId.Encode().String()
 	metadata := map[string]string{}
-	if options.RecordedEventMetadata.CorrelationId != "" {
-		metadata["$correlationId"] = options.RecordedEventMetadata.CorrelationId.String()
+	if options.CorrelationId != "" {
+		metadata["$correlationId"] = options.CorrelationId.String()
 	}
-	if options.RecordedEventMetadata.CausationId != "" {
-		metadata["$causationId"] = options.RecordedEventMetadata.CausationId.String()
+	if options.CausationId != "" {
+		metadata["$causationId"] = options.CausationId.String()
 	}
 
 	var err error
@@ -60,7 +60,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 	if len(metadata) > 0 {
 		md, err = json.Marshal(metadata)
 		if err != nil {
-			return errors.Wrap(err, "failed to marshal metadata")
+			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
 	}
 
@@ -68,7 +68,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 	for i, event := range events {
 		data, err := json.Marshal(event)
 		if err != nil {
-			return errors.Wrap(err, "failed to marshal event")
+			return fmt.Errorf("failed to marshal event: %w", err)
 		}
 
 		esevents[i] = esdb.EventData{
@@ -85,12 +85,15 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 	} else if options.ExpectedRevision != "" {
 		r, err := strconv.ParseUint(options.ExpectedRevision.String(), 10, 64)
 		if err != nil {
-			return errors.Wrap(err, "invalid expected revision")
+			return fmt.Errorf("invalid expected revision: %w", err)
 		}
-		r = r - 1 // KAO - revisions are incremented by one when emitted
-		if r < 0 {
+		// KAO - revisions are incremented by one when emitted, so the lowest
+		// valid non-initial revision is 1. A value of 0 would underflow the
+		// uint64 below and never maps to a real ESDB stream revision.
+		if r == 0 {
 			return errors.New("invalid expected revision")
 		}
+		r = r - 1
 
 		revision = esdb.Revision(r)
 	}
@@ -105,7 +108,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 			return we.RevisionConflict
 		}
 
-		return errors.Wrap(err, "failed to append to stream")
+		return fmt.Errorf("failed to append to stream: %w", err)
 	}
 
 	return nil
@@ -164,7 +167,7 @@ func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, fr
 			return nil, esdb.End{}, nil
 		}
 
-		return nil, esdb.End{}, errors.Wrap(err, "failed to read stream")
+		return nil, esdb.End{}, fmt.Errorf("failed to read stream: %w", err)
 	}
 	defer stream.Close()
 
@@ -179,7 +182,7 @@ func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, fr
 		}
 
 		if err != nil {
-			return nil, esdb.End{}, errors.Wrap(err, "failed to read event")
+			return nil, esdb.End{}, fmt.Errorf("failed to read event: %w", err)
 		}
 
 		e := event.OriginalEvent()
@@ -191,7 +194,7 @@ func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, fr
 		var userMetadata map[string]string
 		if len(e.UserMetadata) > 0 {
 			if err := json.Unmarshal(e.UserMetadata, &userMetadata); err != nil {
-				return nil, esdb.End{}, errors.Wrap(err, "failed to unmarshal metadata")
+				return nil, esdb.End{}, fmt.Errorf("failed to unmarshal metadata: %w", err)
 			}
 		}
 
