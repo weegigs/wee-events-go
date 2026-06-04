@@ -2,9 +2,11 @@ package jetstream
 
 import (
 	"context"
+	"errors"
+
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 	"github.com/oklog/ulid/v2"
-	"github.com/rs/zerolog/log"
 	"github.com/weegigs/wee-events-go/internal"
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -13,25 +15,25 @@ type EventStoreOption func(*EventStore)
 
 const prefix = "change-set."
 
-func NewEventStore(name string, connection *nats.Conn, options ...EventStoreOption) *EventStore {
-	stream, err := connection.JetStream()
+func NewEventStore(ctx context.Context, name string, connection *nats.Conn, options ...EventStoreOption) (*EventStore, error) {
+	js, err := jetstream.New(connection)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
-	_, err = stream.AddStream(&nats.StreamConfig{
+	stream, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:        name,
 		Description: "change set stream for " + name,
 		Subjects:    []string{prefix + ">"},
 	})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	store := &EventStore{
-		name:    name,
-		manager: stream,
-		stream:  stream,
+		name:   name,
+		js:     js,
+		stream: stream,
 	}
 
 	for _, option := range options {
@@ -50,13 +52,13 @@ func NewEventStore(name string, connection *nats.Conn, options ...EventStoreOpti
 		store.marshaller = JSONMarshaller{}
 	}
 
-	return store
+	return store, nil
 }
 
 type EventStore struct {
 	name       string
-	manager    nats.JetStreamManager
-	stream     nats.JetStream
+	js         jetstream.JetStream
+	stream     jetstream.Stream
 	clock      Clock
 	id         IDGenerator
 	marshaller Marshaller
@@ -89,28 +91,27 @@ func (es *EventStore) Publish(ctx context.Context, aggregateId we.AggregateId, o
 		return err
 	}
 
-	var opts = []nats.PubOpt{nats.Context(ctx)}
+	var opts []jetstream.PublishOpt
 
 	expected := options.ExpectedRevision
 	if expected != "" {
 		if expected == we.InitialRevision {
-			opts = append(opts, nats.ExpectLastSequencePerSubject(0))
+			opts = append(opts, jetstream.WithExpectLastSequencePerSubject(0))
 		} else {
 			sequenceNumber, err := internal.DecodeSequenceNumber(expected)
 			if err != nil {
 				return err
 			}
 
-			opts = append(opts, nats.ExpectLastSequencePerSubject(sequenceNumber))
+			opts = append(opts, jetstream.WithExpectLastSequencePerSubject(sequenceNumber))
 		}
 	}
 
-	_, err = es.stream.Publish(subject(aggregateId), bytes, opts...)
+	_, err = es.js.Publish(ctx, subject(aggregateId), bytes, opts...)
 	if err != nil {
-		if api, ok := err.(*nats.APIError); ok {
-			if api.ErrorCode == nats.JSErrCodeStreamWrongLastSequence {
-				return we.RevisionConflict
-			}
+		var api *jetstream.APIError
+		if errors.As(err, &api) && api.ErrorCode == jetstream.JSErrCodeStreamWrongLastSequence {
+			return we.RevisionConflict
 		}
 		return err
 	}
@@ -145,9 +146,9 @@ func (es *EventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate
 }
 
 func (es *EventStore) latest(ctx context.Context, subject string) (*uint64, error) {
-	msg, err := es.manager.GetLastMsg(es.name, subject, nats.Context(ctx))
+	msg, err := es.stream.GetLastMsgForSubject(ctx, subject)
 	if err != nil {
-		if err == nats.ErrMsgNotFound {
+		if errors.Is(err, jetstream.ErrMsgNotFound) {
 			return nil, nil
 		}
 
@@ -167,20 +168,23 @@ func (es *EventStore) read(ctx context.Context, subject string) ([]we.RecordedEv
 		return nil, nil
 	}
 
-	subscription, err := es.stream.SubscribeSync(subject, nats.DeliverAll(), nats.OrderedConsumer())
+	consumer, err := es.stream.OrderedConsumer(ctx, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{subject},
+		DeliverPolicy:  jetstream.DeliverAllPolicy,
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer func(subscription *nats.Subscription) {
-		err := subscription.Unsubscribe()
-		if err != nil {
-			log.Err(err).Msg("ephemeral stream subscription failed to unsubscribe cleanly")
-		}
-	}(subscription)
+
+	messages, err := consumer.Messages()
+	if err != nil {
+		return nil, err
+	}
+	defer messages.Stop()
 
 	var events []we.RecordedEvent
 	for {
-		msg, err := subscription.NextMsgWithContext(ctx)
+		msg, err := messages.Next()
 		if err != nil {
 			return nil, err
 		}
@@ -190,12 +194,14 @@ func (es *EventStore) read(ctx context.Context, subject string) ([]we.RecordedEv
 			return nil, err
 		}
 
-		recorded, err := es.decodeChangeSet(msg.Data, metadata)
+		recorded, err := es.decodeChangeSet(msg.Data(), metadata)
 		if err != nil {
 			return nil, err
 		}
 
 		events = append(events, recorded...)
+
+		// Ordered consumers use AckNonePolicy, so messages are not acked.
 
 		if metadata.Sequence.Stream >= *latest {
 			break
@@ -205,7 +211,7 @@ func (es *EventStore) read(ctx context.Context, subject string) ([]we.RecordedEv
 	return events, nil
 }
 
-func (es *EventStore) decodeChangeSet(data []byte, metadata *nats.MsgMetadata) ([]we.RecordedEvent, error) {
+func (es *EventStore) decodeChangeSet(data []byte, metadata *jetstream.MsgMetadata) ([]we.RecordedEvent, error) {
 	cs := &ChangeSet{}
 	err := es.marshaller.Unmarshal(data, cs)
 	if err != nil {

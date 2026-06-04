@@ -3,33 +3,30 @@ package jetstream
 import (
 	"context"
 	"fmt"
+
 	"github.com/nats-io/nats.go"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 func NewTestStore(ctx context.Context, options ...EventStoreOption) (*EventStore, func(), error) {
-	db, err := testcontainers.GenericContainer(
-		ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: testcontainers.ContainerRequest{
-				Image:        "nats:alpine",
-				ExposedPorts: []string{"4222/tcp"},
-				WaitingFor:   wait.ForListeningPort("4222"),
-				Cmd:          []string{"--jetstream"},
-			},
-			Started: true,
-		},
+	ctr, err := testcontainers.Run(
+		ctx,
+		"nats:alpine",
+		testcontainers.WithExposedPorts("4222/tcp"),
+		testcontainers.WithWaitStrategy(wait.ForListeningPort("4222/tcp")),
+		testcontainers.WithCmd("--jetstream"),
 	)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	host, err := db.Host(ctx)
+	host, err := ctr.Host(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	port, err := db.MappedPort(ctx, "4222")
+	port, err := ctr.MappedPort(ctx, "4222")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -40,10 +37,13 @@ func NewTestStore(ctx context.Context, options ...EventStoreOption) (*EventStore
 		return nil, nil, err
 	}
 
-	store := NewEventStore("test", nc, options...)
+	store, err := NewEventStore(ctx, "test", nc, options...)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return store, func() {
-		if err := db.Terminate(ctx); err != nil {
+		if err := ctr.Terminate(ctx); err != nil {
 			panic(err)
 		}
 	}, nil
