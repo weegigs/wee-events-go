@@ -7,7 +7,7 @@ wee-events, **`we`**
 ## Tools
 
 This project uses [mise](https://mise.jdx.dev) to manage its toolchain
-(Go 1.26, golangci-lint, gopls, natscli) and tasks. Install it, then provision:
+(Go 1.26, golangci-lint, gopls, natscli, just). Install it, then provision:
 
 ```sh
 mise install
@@ -18,11 +18,11 @@ mise install
 Run the unit tests to ensure everything is 🕺
 
 ```sh
-mise run test
+just test
 ```
 
-See `.mise.toml` for the full task list (`build`, `wire`, `lint`, `fix`,
-`update-deps`, `test:integration`).
+Tasks live in the `justfile`; run `just --list` for the full set (`build`,
+`wire`, `lint`, `fix`, `update-deps`, `test-integration`).
 
 ## Documentation
 

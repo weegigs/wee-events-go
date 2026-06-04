@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Development Environment
 
-This project uses [mise](https://mise.jdx.dev) for toolchain and task management
-(Go 1.26, golangci-lint, gopls, natscli). Provision it once:
+This project uses [mise](https://mise.jdx.dev) for the toolchain (Go 1.26,
+golangci-lint, gopls, natscli, just) and [just](https://just.systems) for project
+tasks. Provision the tools once:
 
 ```bash
 mise install
@@ -13,36 +14,37 @@ mise install
 
 ## Common Development Commands
 
-Tasks are defined in `.mise.toml` and run with `mise run <task>`:
+Tasks are defined in the `justfile` and run with `just <recipe>` from a
+mise-activated shell (`just --list` shows them all):
 
 ```bash
 # Run all unit tests
-mise run test
+just test
 
 # Build the sample server
-mise run build
+just build
 
 # Generate Wire dependency injection code (wire is a go.mod tool directive)
-mise run wire
+just wire
 
 # Lint
-mise run lint
+just lint
 
 # Apply Go 1.26 modernisers + gofmt simplification
-mise run fix
+just fix
 
 # Update all dependencies to latest and tidy
-mise run update-deps
+just update-deps
 ```
 
-Ad-hoc Go commands run through mise to pick up the pinned toolchain, e.g.
+Ad-hoc Go commands pick up the pinned toolchain via mise, e.g.
 `mise exec -- go test -v ./we/...`.
 
 ### Running Integration Tests
 Integration tests require Docker containers for EventStore and NATS:
 
 ```bash
-mise run test:integration
+just test-integration
 ```
 
 This starts the services in `local/docker-compose.yml` and runs `go test -v ./stores/...`.
