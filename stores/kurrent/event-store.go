@@ -1,4 +1,4 @@
-package esdbs
+package kurrent
 
 import (
 	"context"
@@ -13,12 +13,12 @@ import (
 	"github.com/weegigs/wee-events-go/we"
 )
 
-type EventStoreOption func(*ESDBEventStore)
+type EventStoreOption func(*KurrentEventStore)
 
 const defaultPageSize = 97
 
 func PageSize(size int) EventStoreOption {
-	return func(es *ESDBEventStore) {
+	return func(es *KurrentEventStore) {
 		if size <= 0 {
 			size = defaultPageSize
 		}
@@ -27,8 +27,8 @@ func PageSize(size int) EventStoreOption {
 	}
 }
 
-func NewEventStore(client *kurrentdb.Client, options ...EventStoreOption) *ESDBEventStore {
-	store := &ESDBEventStore{
+func NewEventStore(client *kurrentdb.Client, options ...EventStoreOption) *KurrentEventStore {
+	store := &KurrentEventStore{
 		db:       client,
 		pageSize: defaultPageSize,
 	}
@@ -40,12 +40,12 @@ func NewEventStore(client *kurrentdb.Client, options ...EventStoreOption) *ESDBE
 	return store
 }
 
-type ESDBEventStore struct {
+type KurrentEventStore struct {
 	db       *kurrentdb.Client
 	pageSize int
 }
 
-func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
+func (es *KurrentEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
 	streamId := aggregateId.Encode().String()
 	metadata := map[string]string{}
 	if options.CorrelationId != "" {
@@ -93,7 +93,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 		}
 		// KAO - revisions are incremented by one when emitted, so the lowest
 		// valid non-initial revision is 1. A value of 0 would underflow the
-		// uint64 below and never maps to a real ESDB stream revision.
+		// uint64 below and never maps to a real KurrentDB stream revision.
 		if r == 0 {
 			return errors.New("expected revision must be >= 1")
 		}
@@ -102,11 +102,11 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 		state = kurrentdb.Revision(r)
 	}
 
-	esdbOptions := kurrentdb.AppendToStreamOptions{
+	appendOptions := kurrentdb.AppendToStreamOptions{
 		StreamState: state,
 	}
 
-	_, err = es.db.AppendToStream(ctx, streamId, esdbOptions, esevents...)
+	_, err = es.db.AppendToStream(ctx, streamId, appendOptions, esevents...)
 	if err != nil {
 		var kErr *kurrentdb.Error
 		if errors.As(err, &kErr) && kErr.Code() == kurrentdb.ErrorCodeWrongExpectedVersion {
@@ -119,7 +119,7 @@ func (es *ESDBEventStore) Publish(ctx context.Context, aggregateId we.AggregateI
 	return nil
 }
 
-func (es *ESDBEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
+func (es *KurrentEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
 	var events []we.RecordedEvent
 
 	var position kurrentdb.StreamPosition = kurrentdb.Start{}
@@ -150,7 +150,7 @@ func (es *ESDBEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggre
 	}, nil
 }
 
-func (es *ESDBEventStore) read(ctx context.Context, aggregate we.AggregateId, from kurrentdb.StreamPosition) ([]we.RecordedEvent, kurrentdb.StreamPosition, error) {
+func (es *KurrentEventStore) read(ctx context.Context, aggregate we.AggregateId, from kurrentdb.StreamPosition) ([]we.RecordedEvent, kurrentdb.StreamPosition, error) {
 	if revision, ok := from.(kurrentdb.StreamRevision); ok {
 		from = kurrentdb.StreamRevision{
 			Value: revision.Value + 1,

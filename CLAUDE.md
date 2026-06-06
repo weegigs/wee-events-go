@@ -66,7 +66,7 @@ This is an event sourcing framework implementing CQRS (Command Query Responsibil
 - `/we` - Core event sourcing framework (uses Go generics extensively)
 - `/stores` - Event store implementations:
   - `/ds` - AWS DynamoDB backend
-  - `/esbs` - KurrentDB backend (formerly EventStore DB)
+  - `/kurrent` - KurrentDB backend (formerly EventStore DB)
   - `/jetstream` - NATS JetStream backend
 - `/samples/counter` - Complete example showing framework usage
 - `/connectors/wehttp` - HTTP adapter for REST APIs

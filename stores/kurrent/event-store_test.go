@@ -1,4 +1,4 @@
-package esdbs
+package kurrent
 
 import (
 	"context"
@@ -15,13 +15,13 @@ type TestEvent struct {
 
 func TestEventStore(t *testing.T) {
 	ctx := context.Background()
-	store, cleanup, err := NewESDBTestStore(ctx, PageSize(5))
+	store, cleanup, err := NewKurrentTestStore(ctx, PageSize(5))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup()
 
-	t.Run("esdb event store validation", func(t *testing.T) {
+	t.Run("kurrentdb event store validation", func(t *testing.T) {
 		suite := we.NewEventStoreValidationSuite(ctx, store)
 		suite.Run(t)
 	})

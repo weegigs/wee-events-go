@@ -1,4 +1,4 @@
-package esdbs
+package kurrent
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 // HTTP/gRPC port and cluster size default to 2113 and 1 respectively.
 const kurrentDBImage = "kurrentplatform/kurrentdb:26.0.3"
 
-func NewESDBTestStore(ctx context.Context, options ...EventStoreOption) (*ESDBEventStore, func(), error) {
+func NewKurrentTestStore(ctx context.Context, options ...EventStoreOption) (*KurrentEventStore, func(), error) {
 	ctr, err := testcontainers.Run(
 		ctx,
 		kurrentDBImage,
