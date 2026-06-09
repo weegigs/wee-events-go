@@ -13,16 +13,6 @@ type Dispatcher[T any] interface {
 	Dispatch(ctx context.Context, entity Entity[T], command Command) (bool, error)
 }
 
-type CommandDispatcher[T any] struct {
-	Publish EventPublisher
-	Handler CommandHandler[T]
-}
-
-func (c *CommandDispatcher[T]) Dispatch(ctx context.Context, entity Entity[T], command Command) (bool, error) {
-	// TODO implement me
-	panic("implement me")
-}
-
 func CommandNotFound(command CommandName) CommandNotFoundError {
 	return CommandNotFoundError{Command: command}
 }
