@@ -88,6 +88,16 @@ func startEnvironment(t *testing.T) (*ingress.Client, *memoryStore) {
 	sdkPort, err := strconv.Atoi(srvURL.Port())
 	require.NoError(t, err)
 
+	client := startRestateRuntime(t, sdkPort)
+	return client, store
+}
+
+// startRestateRuntime runs the Restate container, registers the SDK endpoint
+// listening on the host's sdkPort as a deployment, and returns an ingress
+// client for it.
+func startRestateRuntime(t *testing.T, sdkPort int) *ingress.Client {
+	t.Helper()
+
 	ctx := t.Context()
 	restateC, err := testcontainers.Run(
 		ctx, restateImage,
@@ -123,8 +133,7 @@ func startEnvironment(t *testing.T) (*ingress.Client, *memoryStore) {
 	require.NoError(t, res.Body.Close())
 	require.Equal(t, http.StatusCreated, res.StatusCode)
 
-	client := ingress.NewClient(fmt.Sprintf("http://localhost:%s", mappedIngress.Port()))
-	return client, store
+	return ingress.NewClient(fmt.Sprintf("http://localhost:%s", mappedIngress.Port()))
 }
 
 // RESTATE-S2.R1 / RESTATE-S2.R3 — executing increment twice with the same
