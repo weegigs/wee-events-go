@@ -69,6 +69,14 @@ func subject(aggregateId we.AggregateId) string {
 }
 
 func (es *EventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
+	if len(events) == 0 {
+		// An empty publish is a no-op, not an error (CONFORMANCE-S3). Publishing
+		// an empty changeset message would advance the subject's last sequence
+		// past the revision a Load reports, breaking every subsequent
+		// expected-revision publish with a spurious conflict.
+		return nil
+	}
+
 	records := make([]EventRecord, len(events))
 
 	for index, event := range events {

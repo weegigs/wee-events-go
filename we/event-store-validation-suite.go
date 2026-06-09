@@ -411,6 +411,15 @@ func (s *EventStoreValidationSuite) EmptyPublishReturnsCurrentRevision(t *testin
 		assert.Equal(t, before.Events[i].Revision, after.Events[i].Revision)
 		assert.Equal(t, before.Events[i].EventID, after.Events[i].EventID)
 	}
+
+	// CONFORMANCE-S3.R3: the no-op must also leave optimistic concurrency
+	// intact — a publish conditioned on the loaded revision must still succeed.
+	// A backend whose empty publish advances hidden backing-store state (e.g. a
+	// stream sequence) passes the Load comparison above but fails here with a
+	// spurious revision conflict.
+	err = s.store.Publish(s.ctx, aggregateId, Options(WithExpectedRevision(after.Revision)), s.MakeTestEvent())
+	require.NoError(t, err)
+	require.NoError(t, s.ExpectEventCount(t, aggregateId, 4))
 }
 
 // EventOrderingPreserved asserts that events recorded across separately
