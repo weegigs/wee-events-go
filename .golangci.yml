@@ -1,6 +1,15 @@
 version: "2"
 
 linters:
+  # Principle 2 (explicit resource lifecycle) enforcement. errcheck is on in the
+  # default set; bodyclose and sqlclosecheck are default-off and enabled here so
+  # an unchecked Close()/unclosed HTTP body or sql resource fails CI. See
+  # documents/adr/0006-lint-enforcement.md. exhaustive is deliberately NOT a
+  # global gate (principle 3 warns against a blanket exhaustiveness mandate).
+  enable:
+    - errcheck
+    - bodyclose
+    - sqlclosecheck
   exclusions:
     rules:
       # ST1012: sentinel error vars need not be Err-prefixed. Named errors
