@@ -4,15 +4,15 @@ import (
 	"fmt"
 )
 
+// InvalidEncodingError reports a genuine encoding mismatch: a specific decoder
+// was handed an envelope whose encoding differs from the one it consumes. Both
+// Expected and Actual are always set.
 type InvalidEncodingError struct {
 	Expected string
 	Actual   string
 }
 
 func (e *InvalidEncodingError) Error() string {
-	if e.Expected == "" {
-		return fmt.Sprintf("unknown encoding %s", e.Actual)
-	}
 	return fmt.Sprintf("expected encoding %s, got %s", e.Expected, e.Actual)
 }
 
@@ -23,13 +23,23 @@ func InvalidEncoding(expected string, actual string) error {
 	}
 }
 
+// UnknownEncodingError reports that no decoder is registered for the declared
+// encoding. It is a distinct type from InvalidEncodingError so callers can tell
+// "no decoder for this encoding" apart from "decoder handed the wrong encoding".
+type UnknownEncodingError struct {
+	Actual string
+}
+
+func (e *UnknownEncodingError) Error() string {
+	return fmt.Sprintf("unknown encoding %s", e.Actual)
+}
+
 // UnknownEncoding reports that no decoder is registered for the given encoding.
 // It is the typed unknown-encoding error used by Decoders dispatch (CBOR-S2.R3,
-// CBOR-S4.R2); Expected is empty because no single encoding was required.
+// CBOR-S4.R2).
 func UnknownEncoding(actual string) error {
-	return &InvalidEncodingError{
-		Expected: "",
-		Actual:   actual,
+	return &UnknownEncodingError{
+		Actual: actual,
 	}
 }
 

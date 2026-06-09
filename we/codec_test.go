@@ -145,9 +145,9 @@ func decodersRejectUnknownEncoding(t *testing.T) {
 	err := decoders.Decode(Data{Encoding: "application/x-unknown", Data: []byte("{}")}, &decoded)
 
 	require.Error(t, err)
-	var invalid *InvalidEncodingError
-	require.True(t, errors.As(err, &invalid), "expected *InvalidEncodingError, got %T", err)
-	assert.Equal(t, "application/x-unknown", invalid.Actual)
+	var unknown *UnknownEncodingError
+	require.True(t, errors.As(err, &unknown), "expected *UnknownEncodingError, got %T", err)
+	assert.Equal(t, "application/x-unknown", unknown.Actual)
 	// No default decode happened: the target is untouched.
 	assert.Equal(t, codecPayload{}, decoded)
 }
@@ -195,8 +195,8 @@ func unmarshalFromDataDispatchesAndRejects(t *testing.T) {
 		var decoded codecPayload
 		err := UnmarshalFromData(Data{Encoding: "application/x-unknown", Data: []byte("{}")}, &decoded)
 		require.Error(t, err)
-		var invalid *InvalidEncodingError
-		assert.True(t, errors.As(err, &invalid), "expected *InvalidEncodingError, got %T", err)
+		var unknown *UnknownEncodingError
+		assert.True(t, errors.As(err, &unknown), "expected *UnknownEncodingError, got %T", err)
 	})
 }
 

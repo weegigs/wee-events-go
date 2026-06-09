@@ -90,9 +90,9 @@ func remoteCommandRejectsUnsupportedEncoding(t *testing.T) {
 	err := handler.HandleRemoteCommand(context.Background(), cmd, Entity[struct{}]{}, noopPublisher)
 
 	require.Error(t, err)
-	var invalid *InvalidEncodingError
-	require.True(t, errors.As(err, &invalid), "expected *InvalidEncodingError, got %T", err)
-	assert.Equal(t, "application/x-unknown", invalid.Actual)
+	var unknown *UnknownEncodingError
+	require.True(t, errors.As(err, &unknown), "expected *UnknownEncodingError, got %T", err)
+	assert.Equal(t, "application/x-unknown", unknown.Actual)
 }
 
 func TestRemoteCommandEncoding(t *testing.T) {
@@ -124,9 +124,9 @@ func remoteCommandUnknownEncodingIsDecodeError(t *testing.T) {
 	require.True(t, errors.As(err, &decode), "expected *DecodeError, got %T", err)
 
 	// the underlying typed encoding error remains recoverable through the wrap.
-	var invalid *InvalidEncodingError
-	require.True(t, errors.As(err, &invalid), "expected the wrapped *InvalidEncodingError to remain recoverable")
-	assert.Equal(t, "application/x-unknown", invalid.Actual)
+	var unknown *UnknownEncodingError
+	require.True(t, errors.As(err, &unknown), "expected the wrapped *UnknownEncodingError to remain recoverable")
+	assert.Equal(t, "application/x-unknown", unknown.Actual)
 
 	// an inbound-decode failure is a client error, not a domain rejection.
 	var rejection Rejection

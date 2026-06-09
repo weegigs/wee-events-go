@@ -36,6 +36,7 @@ type Decoder interface {
 // (CBOR-S3.R2).
 type JSONEncoder struct{}
 
+// MakeJSONEncoder returns a JSONEncoder that emits application/json payloads.
 func MakeJSONEncoder() JSONEncoder {
 	return JSONEncoder{}
 }
@@ -45,20 +46,21 @@ func (JSONEncoder) Encoding() string {
 }
 
 func (JSONEncoder) Encode(value any) (Data, error) {
-	bytes, err := json.Marshal(value)
+	encoded, err := json.Marshal(value)
 	if err != nil {
 		return Data{}, err
 	}
 
 	return Data{
 		Encoding: JSONEncoding,
-		Data:     bytes,
+		Data:     encoded,
 	}, nil
 }
 
 // JSONDecoder decodes application/json payloads.
 type JSONDecoder struct{}
 
+// MakeJSONDecoder returns a JSONDecoder that consumes application/json payloads.
 func MakeJSONDecoder() JSONDecoder {
 	return JSONDecoder{}
 }
@@ -78,6 +80,7 @@ func (JSONDecoder) Decode(data Data, value any) error {
 // fxamacker/cbor/v2 (ADR-0002).
 type CBOREncoder struct{}
 
+// MakeCBOREncoder returns a CBOREncoder that emits application/cbor payloads.
 func MakeCBOREncoder() CBOREncoder {
 	return CBOREncoder{}
 }
@@ -87,33 +90,56 @@ func (CBOREncoder) Encoding() string {
 }
 
 func (CBOREncoder) Encode(value any) (Data, error) {
-	bytes, err := cbor.Marshal(value)
+	encoded, err := cbor.Marshal(value)
 	if err != nil {
 		return Data{}, err
 	}
 
 	return Data{
 		Encoding: CBOREncoding,
-		Data:     bytes,
+		Data:     encoded,
 	}, nil
 }
 
-// CBORDecoder decodes application/cbor payloads.
-type CBORDecoder struct{}
+// hardenedCBORDecMode is a CBOR decode mode hardened for untrusted payloads.
+// Event/command bytes can originate from remote clients, so the decoder rejects
+// duplicate map keys, forbids indefinite-length items (the encoder always emits
+// definite-length CBOR), and caps nesting depth to bound resource use. The
+// unhardened package-level cbor.Unmarshal is never used on the decode path.
+var hardenedCBORDecMode = mustCBORDecMode(cbor.DecOptions{
+	DupMapKey:       cbor.DupMapKeyEnforcedAPF,
+	IndefLength:     cbor.IndefLengthForbidden,
+	MaxNestedLevels: 16,
+})
 
+func mustCBORDecMode(opts cbor.DecOptions) cbor.DecMode {
+	mode, err := opts.DecMode()
+	if err != nil {
+		panic(err)
+	}
+	return mode
+}
+
+// CBORDecoder decodes application/cbor payloads.
+type CBORDecoder struct {
+	decMode cbor.DecMode
+}
+
+// MakeCBORDecoder returns a CBORDecoder that consumes application/cbor payloads
+// using a hardened decode mode suitable for untrusted bytes.
 func MakeCBORDecoder() CBORDecoder {
-	return CBORDecoder{}
+	return CBORDecoder{decMode: hardenedCBORDecMode}
 }
 
 func (CBORDecoder) Encoding() string {
 	return CBOREncoding
 }
 
-func (CBORDecoder) Decode(data Data, value any) error {
+func (d CBORDecoder) Decode(data Data, value any) error {
 	if data.Encoding != CBOREncoding {
 		return InvalidEncoding(CBOREncoding, data.Encoding)
 	}
-	return cbor.Unmarshal(data.Data, value)
+	return d.decMode.Unmarshal(data.Data, value)
 }
 
 // Decoders selects a Decoder by a Data envelope's encoding (CBOR-S2.R1) and
