@@ -8,7 +8,10 @@ import (
 )
 
 func TestInitializerFunction(t *testing.T) {
-	t.Run("rejects non-json encoding with InvalidEncodingError", func(t *testing.T) {
+	t.Run("rejects unregistered encoding with InvalidEncodingError", func(t *testing.T) {
+		// KAO - decoding now dispatches by encoding across the registered JSON
+		// and CBOR decoders (feature 01); an encoding with no registered decoder
+		// is rejected as unknown, so Expected is empty rather than JSON-specific.
 		evt := RecordedEvent{
 			EventType: EventTypeOf(opened{}),
 			Data:      Data{Encoding: "application/xml", Data: []byte("<opened/>")},
@@ -17,7 +20,6 @@ func TestInitializerFunction(t *testing.T) {
 
 		var enc *InvalidEncodingError
 		require.ErrorAs(t, err, &enc)
-		assert.Equal(t, "application/json", enc.Expected)
 		assert.Equal(t, "application/xml", enc.Actual)
 	})
 

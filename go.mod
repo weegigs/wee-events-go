@@ -15,6 +15,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.8
 	github.com/aws/constructs-go/constructs/v10 v10.6.0
 	github.com/aws/smithy-go v1.27.0
+	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/google/wire v0.7.0
 	github.com/iancoleman/strcase v0.3.0
 	github.com/kurrent-io/KurrentDB-Client-Go v1.2.0
@@ -73,6 +74,7 @@ require (
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	golang.org/x/crypto v0.52.0 // indirect

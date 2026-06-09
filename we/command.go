@@ -2,8 +2,6 @@ package we
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 )
 
 type CommandName string
@@ -53,11 +51,10 @@ func (f CommandHandlerFunction[T, C]) HandleCommand(ctx context.Context, cmd Com
 func (f CommandHandlerFunction[T, C]) HandleRemoteCommand(ctx context.Context, cmd RemoteCommand, state Entity[T], publish EventPublisher) error {
 	var command C
 
-	if cmd.Payload.Encoding != "application/json" {
-		return errors.New("unsupported encoding")
-	}
-
-	if err := json.Unmarshal(cmd.Payload.Data, &command); err != nil {
+	// KAO - decode the payload using the registered decoder for the declared
+	// encoding (CBOR-S4.R1); an unsupported encoding is rejected with a typed
+	// unknown-encoding error (CBOR-S4.R2).
+	if err := UnmarshalFromData(cmd.Payload, &command); err != nil {
 		return err
 	}
 
