@@ -99,3 +99,68 @@ func TestRemoteCommandEncoding(t *testing.T) {
 	t.Run("decodes declared encoding (CBOR-S4.R1)", remoteCommandDecodesDeclaredEncoding)
 	t.Run("rejects unsupported encoding (CBOR-S4.R2)", remoteCommandRejectsUnsupportedEncoding)
 }
+
+// REJECT-S3.R1 (boundary classification) - a RemoteCommand declaring an
+// unsupported encoding fails decode with a typed *DecodeError that the boundary
+// can positively classify as an inbound-client error, and that is NOT
+// recoverable as a Rejection.
+func remoteCommandUnknownEncodingIsDecodeError(t *testing.T) {
+	handler := CommandHandlerFunction[struct{}, remotePayload](
+		func(_ context.Context, _ remotePayload, _ Entity[struct{}], _ EventPublisher) error {
+			t.Fatal("handler must not run for an unsupported encoding")
+			return nil
+		},
+	)
+
+	cmd := RemoteCommand{
+		CommandName: "test:remote",
+		Payload:     Data{Encoding: "application/x-unknown", Data: []byte("{}")},
+	}
+	err := handler.HandleRemoteCommand(context.Background(), cmd, Entity[struct{}]{}, noopPublisher)
+
+	require.Error(t, err)
+
+	var decode *DecodeError
+	require.True(t, errors.As(err, &decode), "expected *DecodeError, got %T", err)
+
+	// the underlying typed encoding error remains recoverable through the wrap.
+	var invalid *InvalidEncodingError
+	require.True(t, errors.As(err, &invalid), "expected the wrapped *InvalidEncodingError to remain recoverable")
+	assert.Equal(t, "application/x-unknown", invalid.Actual)
+
+	// an inbound-decode failure is a client error, not a domain rejection.
+	var rejection Rejection
+	assert.False(t, errors.As(err, &rejection), "an inbound-decode failure must not classify as a Rejection")
+}
+
+// REJECT-S3.R1 (boundary classification) - a RemoteCommand declaring a known
+// encoding but carrying malformed bytes fails decode with a typed *DecodeError
+// rather than a bare json error, so the boundary can classify it as a client
+// error.
+func remoteCommandMalformedPayloadIsDecodeError(t *testing.T) {
+	handler := CommandHandlerFunction[struct{}, remotePayload](
+		func(_ context.Context, _ remotePayload, _ Entity[struct{}], _ EventPublisher) error {
+			t.Fatal("handler must not run for a malformed payload")
+			return nil
+		},
+	)
+
+	cmd := RemoteCommand{
+		CommandName: "test:remote",
+		Payload:     Data{Encoding: JSONEncoding, Data: []byte("{not json")},
+	}
+	err := handler.HandleRemoteCommand(context.Background(), cmd, Entity[struct{}]{}, noopPublisher)
+
+	require.Error(t, err)
+
+	var decode *DecodeError
+	require.True(t, errors.As(err, &decode), "expected *DecodeError, got %T", err)
+
+	var rejection Rejection
+	assert.False(t, errors.As(err, &rejection), "a malformed payload must not classify as a Rejection")
+}
+
+func TestRemoteCommandDecodeFailures(t *testing.T) {
+	t.Run("unknown encoding is a DecodeError (REJECT-S3.R1)", remoteCommandUnknownEncodingIsDecodeError)
+	t.Run("malformed payload is a DecodeError (REJECT-S3.R1)", remoteCommandMalformedPayloadIsDecodeError)
+}

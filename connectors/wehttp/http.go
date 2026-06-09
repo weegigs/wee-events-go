@@ -2,6 +2,7 @@ package wehttp
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -47,6 +48,58 @@ type httpService[T any] struct {
 	log        *zerolog.Logger
 	controller we.EntityService[T]
 	encoder    we.EntityEncoder[T]
+}
+
+// rejectionBody is the machine-readable payload returned for a domain rejection
+// (REJECT-S2.R2). It mirrors we.Rejection's JSON shape.
+type rejectionBody struct {
+	Code    string          `json:"code"`
+	Message string          `json:"message"`
+	Context json.RawMessage `json:"context,omitempty"`
+}
+
+// writeCommandError classifies a command-path error at the edge (ADR-0005):
+//
+//   - a recovered we.Rejection is a domain refusal → 422 with a JSON body
+//     carrying its code, message, and context (REJECT-S2.R1, REJECT-S2.R2);
+//   - a we.DecodeError is an inbound client error (bad request) → 400
+//     (REJECT-S3.R1, inbound decode);
+//   - everything else — store, codec, we.RevisionConflict, unexpected — is an
+//     infrastructure fault → 500 and never a 4xx rejection body
+//     (REJECT-S2.R3, REJECT-S3.R1, REJECT-S3.R2).
+func (service *httpService[T]) writeCommandError(w http.ResponseWriter, err error) {
+	var rejection we.Rejection
+	if errors.As(err, &rejection) {
+		service.log.Info().Err(err).Str("code", rejection.Code).Msg("command rejected")
+		// Marshal before committing the status so a malformed Context cannot
+		// leave a 422 with an empty body — fall back to 500 if encoding fails.
+		body, marshalErr := json.Marshal(rejectionBody{
+			Code:    rejection.Code,
+			Message: rejection.Message,
+			Context: rejection.Context,
+		})
+		if marshalErr != nil {
+			service.log.Info().Err(marshalErr).Msg("failed to encode rejection body")
+			http.Error(w, "failed to execute command", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		if _, writeErr := w.Write(body); writeErr != nil {
+			service.log.Info().Err(writeErr).Msg("failed to write rejection body")
+		}
+		return
+	}
+
+	var decode *we.DecodeError
+	if errors.As(err, &decode) {
+		service.log.Info().Err(err).Msg("rejected malformed command")
+		http.Error(w, "invalid command payload", http.StatusBadRequest)
+		return
+	}
+
+	service.log.Info().Err(err).Msg("failed to execute command")
+	http.Error(w, "failed to execute command", http.StatusInternalServerError)
 }
 
 func (service *httpService[T]) getResource() http.HandlerFunc {
@@ -105,8 +158,7 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 			command,
 		)
 		if err != nil {
-			log.Info().Err(err).Msg("failed to execute command")
-			http.Error(w, "failed to execute command", http.StatusInternalServerError)
+			service.writeCommandError(w, err)
 			return
 		}
 
