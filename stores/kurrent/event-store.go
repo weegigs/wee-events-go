@@ -46,6 +46,14 @@ type KurrentEventStore struct {
 }
 
 func (es *KurrentEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
+	if len(events) == 0 {
+		// An empty publish is a no-op, not an error (CONFORMANCE-S3). Guarding
+		// here matches the other stores and avoids a pointless append round-trip
+		// whose outcome would otherwise depend on KurrentDB's server-side
+		// handling of a zero-event append.
+		return nil
+	}
+
 	streamId := aggregateId.Encode().String()
 	metadata := map[string]string{}
 	if options.CorrelationId != "" {

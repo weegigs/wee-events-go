@@ -78,6 +78,11 @@ func withAuthToken(token string) libsqlOption {
 // redactToken strips a known auth-token value from an error's text so a driver
 // error that echoes the remote connection string cannot leak the credential
 // into a wrapped error or a log. Returns err unchanged when no token is set.
+//
+// When the token is found, the result is a fresh errors.New — deliberately
+// severing the wrap chain, because the original chain is exactly what carries
+// the token. Callers lose errors.Is/As on the cause; the trade-off is confined
+// to the constructor path, where no caller classifies the error.
 func redactToken(err error, token string) error {
 	if err == nil || token == "" {
 		return err
@@ -151,15 +156,19 @@ func applyBusyTimeout(ctx context.Context, conn *sql.Conn, busyTimeout time.Dura
 	return nil
 }
 
-// isUniqueViolation reports whether err is a SQLite UNIQUE-constraint failure.
-// The go-libsql driver surfaces engine failures as a plain formatted error
-// whose message embeds the SQLite text, so detection is by message content —
-// the only signal the driver exposes.
+// isUniqueViolation reports whether err is a violation of the aggregate
+// concurrency index specifically — SQLite names the violated columns, so the
+// optimistic-concurrency guard is distinguished from any other UNIQUE failure
+// (e.g. an event_id primary-key collision, which is a broken id source, not a
+// revision race). The go-libsql driver surfaces engine failures as a plain
+// formatted error whose message embeds the SQLite text, so detection is by
+// message content — the only signal the driver exposes.
 func isUniqueViolation(err error) bool {
 	if err == nil {
 		return false
 	}
-	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+	return strings.Contains(err.Error(),
+		"UNIQUE constraint failed: events.aggregate_type, events.aggregate_key, events.revision")
 }
 
 // isBusy reports whether err is a transient SQLite busy/locked failure that a

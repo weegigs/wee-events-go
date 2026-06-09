@@ -123,6 +123,33 @@ VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?);`,
 	assert.False(t, isBusy(err), "a unique violation must not be classified as transient busy")
 }
 
+// An event_id PRIMARY KEY collision is a different defect (a broken id source),
+// not an optimistic-concurrency race; classifying it as we.RevisionConflict
+// would tell the caller to reload and retry a write that can never succeed.
+func TestEventIdCollisionIsNotARevisionConflict(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore(t)
+
+	id := makeAggregateId()
+	require.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "first"}))
+
+	loaded, err := store.Load(ctx, id)
+	require.NoError(t, err)
+	eventID := loaded.Events[0].EventID.String()
+
+	// Re-insert the SAME event_id at a fresh revision: only the primary key is
+	// violated, not the aggregate concurrency index.
+	_, err = store.db.ExecContext(ctx, `
+INSERT INTO events
+    (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
+VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?);`,
+		eventID, id.Type, id.Key, "dupe", revisionForSequence(99).String(), "application/json", []byte("{}"))
+
+	require.Error(t, err)
+	assert.False(t, isUniqueViolation(err), "a primary-key collision must not classify as a revision conflict, got: %v", err)
+	assert.False(t, isBusy(err), "a primary-key collision must not be classified as transient busy")
+}
+
 // SQLITE-S2.R4 — a stale ExpectedRevision returns we.RevisionConflict and
 // persists none of the batch (transactional all-or-nothing).
 func TestStaleExpectedRevisionPersistsNothing(t *testing.T) {

@@ -37,4 +37,14 @@
 // released through Close. Two stores opened over the same local file observe
 // each other's committed events (shared-backing parity); an in-memory store is
 // private to its single owning *Store.
+//
+// # Known limitation: remote commit acknowledgement loss
+//
+// On a Remote target, a COMMIT that succeeds server-side but whose
+// acknowledgement is lost in transit surfaces as an error. If that error text
+// matches the transient-busy classifier the publish is retried with the same
+// pre-generated event ids and reports a spurious we.RevisionConflict; if it
+// does not, the raw error is returned. Both outcomes are safe — the batch is
+// never written twice and never silently lost — but a caller may observe a
+// conflict (or an error) for a batch that actually committed.
 package sqlite
