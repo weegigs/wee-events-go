@@ -226,6 +226,47 @@ func TestSharedBackingConformance(t *testing.T) {
 	we.NewSharedBackingSuite(ctx, first, second).Run(t)
 }
 
+// busy_timeout is a per-connection SQLite setting, but database/sql is a pool:
+// a publish that lands on a freshly created pool connection must still wait
+// out a held write lock rather than failing fast with SQLITE_BUSY. The test
+// pins the store's only idle (pragma-bearing) connection so Publish is forced
+// onto a fresh one, while a second store instance holds the file's write lock
+// for longer than the in-store immediate-retry loop can absorb.
+func TestBusyTimeoutAppliesToPoolConnections(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "busy.db")
+
+	blocker := newFileStore(t, path)
+	publisher := newFileStore(t, path)
+
+	// Pin the connection prepare() configured; Publish must open a fresh one.
+	pinned, err := publisher.db.Conn(ctx)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, pinned.Close()) }()
+
+	// Take the write lock from the other instance and hold it briefly.
+	lock, err := blocker.db.Conn(ctx)
+	require.NoError(t, err)
+	_, err = lock.ExecContext(ctx, "BEGIN IMMEDIATE")
+	require.NoError(t, err)
+
+	released := make(chan struct{})
+	go func() {
+		defer close(released)
+		time.Sleep(250 * time.Millisecond)
+		_, rbErr := lock.ExecContext(ctx, "ROLLBACK")
+		assert.NoError(t, rbErr)
+		assert.NoError(t, lock.Close())
+	}()
+
+	// With busy_timeout active on the fresh connection the engine waits for the
+	// lock; without it BEGIN IMMEDIATE fails fast and the bounded retry loop is
+	// exhausted while the lock is still held.
+	err = publisher.Publish(ctx, makeAggregateId(), we.Options(), testEvent{Value: "waited"})
+	<-released
+	require.NoError(t, err)
+}
+
 // SQLITE-S3.R1, SQLITE-S3.R2 — the one option set selects in-memory and
 // local-file targets with identical Load/Publish behaviour.
 func TestTargetParity(t *testing.T) {

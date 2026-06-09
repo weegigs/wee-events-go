@@ -103,7 +103,9 @@ func Remote(url string, authToken string) Option {
 	}
 }
 
-// BusyTimeout overrides the SQLite busy_timeout applied to every connection.
+// BusyTimeout overrides the SQLite busy_timeout applied to every connection
+// used for publishing (busy_timeout is per-connection, so each write
+// connection sets it before taking the write lock).
 func BusyTimeout(timeout time.Duration) Option {
 	return func(c *config) error {
 		if timeout < 0 {
@@ -289,6 +291,13 @@ func (s *Store) publishOnce(ctx context.Context, id we.AggregateId, options we.P
 		return fmt.Errorf("sqlite: failed to acquire connection: %w", connErr)
 	}
 	defer func() { _ = conn.Close() }()
+
+	// busy_timeout is per-connection and the pool may hand out a connection
+	// that never had it set; without it BEGIN IMMEDIATE fails fast with
+	// SQLITE_BUSY instead of waiting out a concurrent writer.
+	if err := applyBusyTimeout(ctx, conn, s.busyTimeout); err != nil {
+		return err
+	}
 
 	// BEGIN IMMEDIATE takes the write lock up front, avoiding the read->write
 	// upgrade SQLITE_BUSY_SNAPSHOT race. The read that establishes the current

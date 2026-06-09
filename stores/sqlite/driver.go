@@ -122,17 +122,26 @@ func isRemoteDSN(dsn string) bool {
 		strings.HasPrefix(dsn, "http://")
 }
 
-// applyPragmas sets the connection PRAGMAs. journal_mode and busy_timeout
-// return their resulting value, so they must run through QueryRow rather than
-// Exec (the go-libsql driver rejects an Exec that returns rows). WAL is a
-// no-op for the in-memory target (it reports "memory"); busy_timeout still
-// applies.
+// applyPragmas sets the store-level PRAGMAs at construction. journal_mode and
+// busy_timeout return their resulting value, so they must run through QueryRow
+// rather than Exec (the go-libsql driver rejects an Exec that returns rows).
+// WAL is a database-level property persisted in the file header, so setting it
+// once covers every connection; it is a no-op for the in-memory target (which
+// reports "memory").
 func applyPragmas(ctx context.Context, conn *sql.Conn, busyTimeout time.Duration) error {
 	var journalMode string
 	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&journalMode); err != nil {
 		return fmt.Errorf("sqlite: failed to set journal_mode: %w", err)
 	}
 
+	return applyBusyTimeout(ctx, conn, busyTimeout)
+}
+
+// applyBusyTimeout sets busy_timeout on one connection. Unlike WAL it is a
+// per-connection SQLite setting, so every connection acquired from the
+// database/sql pool for writing must apply it itself — a pragma issued on one
+// pooled connection does not exist on the next.
+func applyBusyTimeout(ctx context.Context, conn *sql.Conn, busyTimeout time.Duration) error {
 	ms := busyTimeout.Milliseconds()
 	var applied int64
 	if err := conn.QueryRowContext(ctx, fmt.Sprintf("PRAGMA busy_timeout=%d", ms)).Scan(&applied); err != nil {
