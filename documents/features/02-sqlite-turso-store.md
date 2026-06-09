@@ -1,6 +1,6 @@
 # Feature 02 — SQLite / libSQL / Turso Event Store
 
-- **Status:** Planned · **Size:** L · **Area:** new package (`stores/sqlite/`)
+- **Status:** Done · **Size:** L · **Area:** new package (`stores/sqlite/`)
 - **Coordinates with:** independent (disjoint files; parallel-safe with Features 03, 04)
 - **Prefix:** `SQLITE`
 

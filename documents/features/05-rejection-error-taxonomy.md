@@ -1,6 +1,6 @@
 # Feature 05 — Structured Rejection / Error Taxonomy
 
-- **Status:** Planned · **Size:** M · **Area:** core (`we/`) + `connectors/wehttp`
+- **Status:** Done · **Size:** M · **Area:** core (`we/`) + `connectors/wehttp`
 - **Coordinates with:** [Feature 01](01-cbor-codec.md) (shared `we/command.go`)
 - **Prefix:** `REJECT`
 

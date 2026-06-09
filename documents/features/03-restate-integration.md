@@ -1,6 +1,6 @@
 # Feature 03 — Restate Durable Execution Connector
 
-- **Status:** Planned · **Size:** L · **Area:** new package (`connectors/werestate/`)
+- **Status:** Done · **Size:** L · **Area:** new package (`connectors/werestate/`)
 - **Coordinates with:** [Feature 05](05-rejection-error-taxonomy.md) (consumes the
   rejection taxonomy at the edge); **Independent** of Features 02 and 04
 - **Prefix:** `RESTATE`

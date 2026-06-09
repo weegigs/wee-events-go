@@ -1,6 +1,6 @@
 # Feature 01 — Pluggable Codec + CBOR Support
 
-- **Status:** Planned · **Size:** M · **Area:** core (`we/`)
+- **Status:** Done · **Size:** M · **Area:** core (`we/`)
 - **Coordinates with:** [Feature 05](05-rejection-error-taxonomy.md) (shared `we/command.go`)
 - **Prefix:** `CBOR`
 

@@ -18,11 +18,11 @@ unrepresentable within Go's limits.
 
 | # | Feature | Area | Size | Status |
 |---|---|---|---|---|
-| [01](features/01-cbor-codec.md) | Pluggable codec + CBOR support | core `we/` | M | Planned |
-| [02](features/02-sqlite-turso-store.md) | SQLite / libSQL / Turso event store | new `stores/sqlite/` | L | Planned |
-| [03](features/03-restate-integration.md) | Restate durable-execution connector | new `connectors/werestate/` | L | Planned |
-| [04](features/04-storage-verification-tests.md) | Storage conformance test parity | `we/` + per-store tests | M | Planned |
-| [05](features/05-rejection-error-taxonomy.md) | Structured rejection / error taxonomy | core `we/` + `wehttp` | M | Planned |
+| [01](features/01-cbor-codec.md) | Pluggable codec + CBOR support | core `we/` | M | Done |
+| [02](features/02-sqlite-turso-store.md) | SQLite / libSQL / Turso event store | new `stores/sqlite/` | L | Done |
+| [03](features/03-restate-integration.md) | Restate durable-execution connector | new `connectors/werestate/` | L | Done |
+| [04](features/04-storage-verification-tests.md) | Storage conformance test parity | `we/` + per-store tests | M | Done |
+| [05](features/05-rejection-error-taxonomy.md) | Structured rejection / error taxonomy | core `we/` + `wehttp` | M | Done |
 
 Size is T-shirt complexity (XS/S/M/L/XL), not a time estimate.
 
@@ -71,6 +71,27 @@ an ADR for its key model before it could be scheduled.
   (02) is events-only.
 - **Compile-time command dispatch (`Handles<C>`).** A Rust trait-bound affordance with
   no honest Go equivalent; the Go dispatcher stays a runtime route map.
+
+## Follow-ups discovered during implementation
+
+Surfaced by the 01–05 work and its reviews; recorded for later, not yet scheduled.
+
+- **`we.Data.Data` is typed `json.RawMessage` but now carries CBOR bytes.** Feature 01 made
+  payloads codec-agnostic, but the `Data` envelope field is still `json.RawMessage`. Stores
+  that persist the *whole envelope as JSON* (`stores/jetstream`, `stores/ds`) would emit
+  invalid JSON for a CBOR payload, because `json.RawMessage` is copied verbatim into the JSON
+  output. `stores/kurrent` and `stores/sqlite` store the payload as an opaque BLOB and are
+  unaffected, so end-to-end CBOR is currently safe only on those two. Fix: retype `Data.Data`
+  as `[]byte` and adjust the jetstream/ds envelope (de)serialization to treat it as opaque
+  bytes (e.g. base64 or a bytes column), then extend the codec round-trip tests across all
+  four backends. Until then, CBOR should be used only with the kurrent and sqlite stores.
+- **`restatedev/sdk-go` test harness vs `testcontainers-go` v0.42.** The SDK's own
+  `github.com/restatedev/sdk-go/testing` helper (v0.24.0) does not compile against the repo's
+  pinned `testcontainers-go` v0.42 (it calls the removed `nat.Port.Int()`; v0.42 returns
+  `network.Port`). The `connectors/werestate` integration test therefore drives the SDK's real
+  `server` entrypoint through a hand-rolled testcontainers harness. When the SDK adopts the
+  v0.42+ `network.Port` API, replace the bespoke harness with the SDK's `testing` helper. This
+  is the "known compatibility problem" exception noted in [ADR-0004](adr/0004-restate-go-sdk.md).
 
 ## Decisions
 

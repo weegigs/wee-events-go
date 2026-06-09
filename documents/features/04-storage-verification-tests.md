@@ -1,6 +1,6 @@
 # Feature 04 — Storage Verification Conformance Parity
 
-- **Status:** Planned · **Size:** M · **Area:** core + tests (`we/event-store-validation-suite.go` + per-store `*_test.go`)
+- **Status:** Done · **Size:** M · **Area:** core + tests (`we/event-store-validation-suite.go` + per-store `*_test.go`)
 - **Coordinates with:** [Feature 02](02-sqlite-turso-store.md) (the new SQLite store is the natural first adopter of the shared-backing suite)
 - **Prefix:** `CONFORMANCE`
 
