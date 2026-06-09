@@ -26,7 +26,6 @@ var RevisionConflict = errors.New("revision-conflict")
 type PublishOptions struct {
 	RecordedEventMetadata
 	ExpectedRevision Revision
-	Encrypt          bool
 }
 
 type PublishOption func(modifier *PublishOptions)
@@ -56,11 +55,5 @@ func WithCausationId(correlationId CorrelationID, causationId EventID) PublishOp
 	return func(modifier *PublishOptions) {
 		modifier.CausationId = causationId
 		modifier.CorrelationId = correlationId
-	}
-}
-
-func WithEncryption() PublishOption {
-	return func(modifier *PublishOptions) {
-		modifier.Encrypt = true
 	}
 }
