@@ -127,10 +127,56 @@ func decodeErrorMapsTo4xx(t *testing.T) {
 	assert.Less(t, rec.Code, 500, "an inbound-decode failure is a client error (4xx)")
 }
 
+// An unknown command name is a client fault: it maps to 400 with a static
+// body, matching the Restate connector's terminal classification (ADR-0005).
+func commandNotFoundMapsTo400(t *testing.T) {
+	notFound := we.CommandNotFound("test:bump")
+	handler := NewHandler[struct{}](stubService{executeErr: notFound})
+
+	rec := postCommand(t, handler)
+
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "an unknown command is a client error, not a server fault")
+	assert.Equal(t, "unknown command\n", rec.Body.String())
+}
+
+// encodeFailStub returns an initialized entity whose state cannot be JSON
+// serialized, forcing the resource-encoding failure path.
+type encodeFailStub struct{}
+
+func (s encodeFailStub) Load(context.Context, we.AggregateId) (we.Entity[chan int], error) {
+	ch := make(chan int)
+	return we.Entity[chan int]{
+		Aggregate: we.AggregateId{Type: "counter", Key: "a"},
+		Revision:  we.Revision("01HX0000000000000000000000"),
+		Type:      "counter",
+		State:     &ch,
+	}, nil
+}
+
+func (s encodeFailStub) Execute(ctx context.Context, id we.AggregateId, _ we.Command) (we.Entity[chan int], error) {
+	return s.Load(ctx, id)
+}
+
+// A resource that cannot be serialized yields a 500 whose body is the static
+// message only — the serializer's internal error text never reaches the client
+// and the status is written exactly once.
+func encodeFailureMapsToStatic5xx(t *testing.T) {
+	handler := NewHandler[chan int](encodeFailStub{})
+
+	req := httptest.NewRequest(http.MethodGet, "/counter/a", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, "failed to encode resource\n", rec.Body.String())
+}
+
 func TestCommandErrorClassification(t *testing.T) {
 	t.Run("rejection maps to structured 4xx (REJECT-S2.R1, REJECT-S2.R2)", rejectionMapsToStructured4xx)
 	t.Run("wrapped rejection maps to 4xx (REJECT-S2.R1)", wrappedRejectionMapsTo4xx)
 	t.Run("store error maps to 5xx (REJECT-S3.R1)", storeErrorMapsTo5xx)
 	t.Run("revision conflict maps to 5xx (REJECT-S3.R2)", revisionConflictMapsTo5xx)
 	t.Run("inbound-decode error maps to 4xx (REJECT-S3.R1)", decodeErrorMapsTo4xx)
+	t.Run("unknown command maps to 400", commandNotFoundMapsTo400)
+	t.Run("encode failure maps to a static 5xx", encodeFailureMapsToStatic5xx)
 }

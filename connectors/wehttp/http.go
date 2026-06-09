@@ -64,6 +64,8 @@ type rejectionBody struct {
 //     carrying its code, message, and context (REJECT-S2.R1, REJECT-S2.R2);
 //   - a we.DecodeError is an inbound client error (bad request) → 400
 //     (REJECT-S3.R1, inbound decode);
+//   - a we.CommandNotFoundError is a client addressing fault → 400, matching
+//     the Restate connector's terminal classification (ADR-0005);
 //   - everything else — store, codec, we.RevisionConflict, unexpected — is an
 //     infrastructure fault → 500 and never a 4xx rejection body
 //     (REJECT-S2.R3, REJECT-S3.R1, REJECT-S3.R2).
@@ -95,6 +97,13 @@ func (service *httpService[T]) writeCommandError(w http.ResponseWriter, err erro
 	if errors.As(err, &decode) {
 		service.log.Info().Err(err).Msg("rejected malformed command")
 		http.Error(w, "invalid command payload", http.StatusBadRequest)
+		return
+	}
+
+	var notFound we.CommandNotFoundError
+	if errors.As(err, &notFound) {
+		service.log.Info().Err(err).Msg("rejected unknown command")
+		http.Error(w, "unknown command", http.StatusBadRequest)
 		return
 	}
 
@@ -147,7 +156,7 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 
 		var command we.RemoteCommand
 		if err := json.Unmarshal(body, &command); err != nil {
-			log.Info().Err(err).Msg("failed to unmarshal command")
+			service.log.Info().Err(err).Msg("failed to unmarshal command")
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}

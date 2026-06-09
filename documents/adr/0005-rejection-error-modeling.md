@@ -40,6 +40,12 @@ signatures are unchanged.
   `4xx`, everything else (store, codec, unexpected, `RevisionConflict`) to a `5xx` — and
   the Restate connector (feature 03) uses the same `errors.As` branch for
   terminal-versus-retryable mapping, without a shared union type.
+- Client-addressing faults classify as client errors in both connectors: an inbound decode
+  failure (`*DecodeError`) and an unknown command name (`CommandNotFoundError`) map to
+  `400` in the HTTP connector and to a terminal bad-request in the Restate connector.
+  Recorded post-review: the HTTP connector originally let `CommandNotFoundError` fall to
+  the `5xx` default, silently diverging from the Restate mapping; the connectors must
+  never disagree on the 4xx-versus-5xx class for the same error.
 - Classification is not compiler-checked. There is no exhaustive switch the compiler can
   verify; correctness rests on the `errors.As` recovery and on not wrapping a `Rejection`
   in a way that hides it (an obligation feature 05's tests enforce).
