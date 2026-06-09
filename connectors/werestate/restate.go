@@ -252,6 +252,15 @@ func EncodeKey(id we.AggregateId) (string, error) {
 	if strings.Contains(id.Type, ":") {
 		return "", fmt.Errorf("invalid aggregate type %q: a colon is reserved as the type:key separator", id.Type)
 	}
+	// decodeKey rejects an empty type or key, so refusing them here keeps the
+	// pair a strict bijection: EncodeKey never produces a key that fails to
+	// decode.
+	if id.Type == "" {
+		return "", fmt.Errorf("invalid aggregate id: type must not be empty")
+	}
+	if id.Key == "" {
+		return "", fmt.Errorf("invalid aggregate id: key must not be empty")
+	}
 
 	return id.Type + ":" + id.Key, nil
 }

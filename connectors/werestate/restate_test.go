@@ -330,6 +330,21 @@ func TestEncodeKeyRejectsColonInType(t *testing.T) {
 	})
 }
 
+// EncodeKey must only produce keys decodeKey accepts: an empty Type or Key
+// encodes into a string decodeKey rejects, so both are refused at the boundary,
+// keeping the documented bijection exact.
+func TestEncodeKeyRejectsEmptyFields(t *testing.T) {
+	t.Run("empty type is rejected", func(t *testing.T) {
+		_, err := EncodeKey(we.AggregateId{Type: "", Key: "k1"})
+		require.Error(t, err)
+	})
+
+	t.Run("empty key is rejected", func(t *testing.T) {
+		_, err := EncodeKey(we.AggregateId{Type: "counter", Key: ""})
+		require.Error(t, err)
+	})
+}
+
 // RESTATE-S4.R2 — phase 1 scope is execute/load/idempotency only; no
 // effect-routing surface is exposed by the connector.
 func TestPhaseOneScopeHasNoEffectRouting(t *testing.T) {

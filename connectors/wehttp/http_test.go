@@ -70,9 +70,11 @@ func rejectionMapsToStructured4xx(t *testing.T) {
 	assert.JSONEq(t, `{"value":7}`, string(body.Context))
 }
 
-// REJECT-S2.R1 - a wrapped rejection is still recovered and mapped to a 4xx.
+// REJECT-S2.R1, REJECT-S2.R2 - a wrapped rejection is still recovered and
+// mapped to a 4xx whose body carries the rejection's own code, message, and
+// context — not the wrapper's text.
 func wrappedRejectionMapsTo4xx(t *testing.T) {
-	rejection := we.MakeRejection("bump.refused", "no", nil)
+	rejection := we.MakeRejection("bump.refused", "no", json.RawMessage(`{"value":7}`))
 	wrapped := errors.Join(errors.New("execute command failed"), rejection)
 	handler := NewHandler[struct{}](stubService{executeErr: wrapped})
 
@@ -80,6 +82,17 @@ func wrappedRejectionMapsTo4xx(t *testing.T) {
 
 	assert.GreaterOrEqual(t, rec.Code, 400)
 	assert.Less(t, rec.Code, 500)
+
+	var body struct {
+		Code    string          `json:"code"`
+		Message string          `json:"message"`
+		Context json.RawMessage `json:"context"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "bump.refused", body.Code)
+	assert.Equal(t, "no", body.Message)
+	assert.JSONEq(t, `{"value":7}`, string(body.Context))
+	assert.NotContains(t, rec.Body.String(), "execute command failed", "wrapper text must not leak into the client body")
 }
 
 // REJECT-S3.R1, REJECT-S3.R2 - a store infrastructure error is a 5xx and never

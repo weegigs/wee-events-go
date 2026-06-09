@@ -328,12 +328,10 @@ func TestConcurrentAppendsSerialize(t *testing.T) {
 	writer := func(store *Store) {
 		defer wg.Done()
 		for range perWriter {
-			err := store.Publish(ctx, id, we.Options(), testEvent{Value: "race"})
-			if err != nil {
-				// Unconditioned appends never set an expected revision, so the
-				// only acceptable failure is a typed conflict — never a raw busy.
-				assert.ErrorIs(t, err, we.RevisionConflict)
-			}
+			// BEGIN IMMEDIATE plus busy_timeout serialize unconditioned appends,
+			// so every publish must commit — the count assertion below depends
+			// on all 2*perWriter events landing.
+			assert.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "race"}))
 		}
 	}
 	wg.Add(2)

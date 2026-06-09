@@ -152,6 +152,38 @@ func decodersRejectUnknownEncoding(t *testing.T) {
 	assert.Equal(t, codecPayload{}, decoded)
 }
 
+// A decoder invoked directly with an envelope it does not own reports the
+// mismatch as a typed *InvalidEncodingError carrying both encodings — distinct
+// from the registry's *UnknownEncodingError ("no decoder at all").
+func directDecoderRejectsMismatchedEncoding(t *testing.T) {
+	jsonData, err := MakeJSONEncoder().Encode(codecPayload{Name: "widget", Count: 7})
+	require.NoError(t, err)
+	cborData, err := MakeCBOREncoder().Encode(codecPayload{Name: "widget", Count: 7})
+	require.NoError(t, err)
+
+	t.Run("json decoder rejects cbor envelope", func(t *testing.T) {
+		var decoded codecPayload
+		err := MakeJSONDecoder().Decode(cborData, &decoded)
+		require.Error(t, err)
+		var invalid *InvalidEncodingError
+		require.True(t, errors.As(err, &invalid), "expected *InvalidEncodingError, got %T", err)
+		assert.Equal(t, JSONEncoding, invalid.Expected)
+		assert.Equal(t, CBOREncoding, invalid.Actual)
+		assert.Equal(t, codecPayload{}, decoded)
+	})
+
+	t.Run("cbor decoder rejects json envelope", func(t *testing.T) {
+		var decoded codecPayload
+		err := MakeCBORDecoder().Decode(jsonData, &decoded)
+		require.Error(t, err)
+		var invalid *InvalidEncodingError
+		require.True(t, errors.As(err, &invalid), "expected *InvalidEncodingError, got %T", err)
+		assert.Equal(t, CBOREncoding, invalid.Expected)
+		assert.Equal(t, JSONEncoding, invalid.Actual)
+		assert.Equal(t, codecPayload{}, decoded)
+	})
+}
+
 func TestCodec(t *testing.T) {
 	t.Run("discriminator strings match Rust (CBOR-S3.R3)", discriminatorStringsMatchRust)
 	t.Run("round-trips through JSON and CBOR (CBOR-S1.R1, CBOR-S1.R2, CBOR-S3.R2)", roundTripsThroughJSONAndCBOR)
@@ -160,6 +192,7 @@ func TestCodec(t *testing.T) {
 	t.Run("Decoders select by encoding (CBOR-S2.R1)", decodersSelectByEncoding)
 	t.Run("Decoders handle mixed-encoding stream (CBOR-S2.R2)", decodersHandleMixedEncodingStream)
 	t.Run("Decoders reject unknown encoding (CBOR-S2.R3)", decodersRejectUnknownEncoding)
+	t.Run("direct decoder rejects mismatched encoding", directDecoderRejectsMismatchedEncoding)
 }
 
 // CBOR-S3.R1 - the default encoder (used by MarshalToData) emits
