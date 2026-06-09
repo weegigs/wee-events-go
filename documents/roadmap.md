@@ -26,6 +26,25 @@ unrepresentable within Go's limits.
 
 Size is T-shirt complexity (XS/S/M/L/XL), not a time estimate.
 
+To execute this backlog, [`implementation-kickoff.md`](implementation-kickoff.md) briefs a
+coordinating agent that delegates each feature to a worker and integrates them in the order
+below.
+
+## Future (unscheduled)
+
+Captured but **not scheduled** — not part of the 01–05 batch, not assigned to a release, and
+not in the sequencing graph below. Recorded so the intent and design constraints are not lost.
+
+| # | Feature | Area | Size | Status |
+|---|---|---|---|---|
+| [06](features/06-payload-encryption.md) | Application-level payload encryption | core `we/` (codec) | L? | Future (unscheduled) |
+
+Feature 06 records the replacement for the removed `PublishOptions.Encrypt` flag (an
+unimplemented field deleted on the candor / no-meaningless-states rule). It is per-payload
+encryption at the codec layer — distinct from the database-at-rest encryption noted in
+[ADR-0003](adr/0003-sqlite-driver-libsql.md). It depends on Feature 01's codec seam and needs
+an ADR for its key model before it could be scheduled.
+
 ## Sequencing
 
 ```
@@ -63,8 +82,8 @@ not edited). Current log:
 |---|---|---|
 | [0001](adr/0001-default-event-encoding-json.md) | JSON is the default event encoding | Accepted |
 | [0002](adr/0002-cbor-library-fxamacker.md) | Use `fxamacker/cbor/v2` for CBOR | Accepted |
-| [0003](adr/0003-sqlite-driver-libsql.md) | Use `go-libsql` for the SQLite/libSQL store | Proposed |
-| [0004](adr/0004-restate-go-sdk.md) | Pin the Restate Go SDK; wire dispatch manually | Proposed |
+| [0003](adr/0003-sqlite-driver-libsql.md) | Use `go-libsql` for the SQLite/libSQL store | Accepted |
+| [0004](adr/0004-restate-go-sdk.md) | Use the Restate Go SDK; wire dispatch manually | Accepted |
 | [0005](adr/0005-rejection-error-modeling.md) | Model domain rejections via `error` + `errors.As` | Accepted |
 | [0006](adr/0006-lint-enforcement.md) | Enforce resource-lifecycle principles via golangci-lint | Accepted |
 

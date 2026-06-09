@@ -18,10 +18,11 @@ sibling carries) is deliberately phase 2, so phase 1 delivers durable execute pl
 
 ## Decisions
 
-- [ADR-0004](../adr/0004-restate-go-sdk.md) — depend on `github.com/restatedev/sdk-go` at
-  a pinned version (confirmed under Go 1.26) and wire dispatch manually through the
-  existing `RoutedDispatcher[T]` rather than generating glue, since Go has no equivalent
-  to Rust's `service!` macro.
+- [ADR-0004](../adr/0004-restate-go-sdk.md) — depend on `github.com/restatedev/sdk-go`,
+  track its latest release (no version pin; `v0.24.0` confirmed to build under Go 1.26), and
+  wire dispatch manually through the existing `RoutedDispatcher[T]` rather than generating
+  glue, since Go has no equivalent to Rust's `service!` macro. The Restate integration test
+  is the upgrade gate.
 
 ## User stories
 
@@ -163,7 +164,8 @@ New package `connectors/werestate` (mirrors `connectors/wehttp`):
 - **Effect routing:** out of the first cut; phase 2 adds an `EffectRouter` equivalent with
   name/predicate filters that triggers side-effect handlers on execution notifications
   (RESTATE-S4).
-- Library: `github.com/restatedev/sdk-go`, pinned and confirmed under Go 1.26 (ADR-0004).
+- Library: `github.com/restatedev/sdk-go`, tracking latest (`v0.24.0` confirmed to build
+  under Go 1.26), gated by the integration test (ADR-0004).
 
 ## Verification
 

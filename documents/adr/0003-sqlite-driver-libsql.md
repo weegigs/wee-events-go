@@ -1,6 +1,6 @@
 # ADR-0003 — Use `go-libsql` for the SQLite/libSQL store
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Relates to:** [features/02-sqlite-turso-store.md](../features/02-sqlite-turso-store.md)
 
 ## Context
@@ -36,9 +36,17 @@ SQLite/libSQL store, accepting the cgo build dependency, because one driver acro
 three targets keeps the store single-responsibility (one connection model, one SQL engine)
 and gives the strongest behaviour parity between local and remote.
 
-This decision is **Proposed**, not locked: it is recommended pending confirmation that the
-cgo build dependency is acceptable for the project's build and distribution targets. The
-pure-Go split is recorded below as the documented fallback if cgo is ruled out.
+The cgo build dependency is **accepted**, on the explicit condition that cgo stays confined
+to the `stores/sqlite` package: the rest of the framework remains cgo-free and buildable with
+`CGO_ENABLED=0`. The pure-Go split is retained below as the documented fallback should a
+future build target rule cgo out.
+
+This choice is expected to be **revisited once Turso Database — the Rust engine behind
+`turso.tech/database/tursogo` — reaches GA.** That engine is BETA today (its repository warns
+to "use caution with production data and ensure you have backups"), making it unsuitable for
+the durable store of record now. At GA a single cgo-free `tursogo` driver could cover
+in-memory + local-file + sync (with `libsql-client-go` for direct remote), at which point a
+successor ADR would supersede this one.
 
 ## Consequences
 
@@ -56,6 +64,16 @@ pure-Go split is recorded below as the documented fallback if cgo is ruled out.
   `stores/sqlite` package doc comment so the build dependency is discoverable at the source.
 - If a future build target forbids cgo, this ADR is revisited and superseded by the
   two-driver alternative below.
+- The chosen libSQL engine carries capabilities the events-only store does not use but could
+  inherit later: **native vector search** (`F32_BLOB` column types and the `vector_top_k`
+  DiskANN index) and **encryption at rest** (AEGIS / AES-GCM via an encryption key —
+  `libsql.WithEncryption`). Encryption at rest is whole-database and transparent to the
+  store, so it fits as an optional `NewStore` option for local-file and embedded-replica
+  targets without breaching the codec-agnostic seam (the store still persists opaque bytes).
+  It is **distinct from** the unimplemented `PublishOptions.Encrypt` flag (per-payload
+  encryption); implementing database-at-rest encryption does not satisfy that flag, which
+  remains a separate principle-3 wart to resolve. Vector search is a read-model/projection
+  concern and stays out of scope while projections are excluded.
 
 ## Alternatives considered
 
@@ -71,3 +89,9 @@ pure-Go split is recorded below as the documented fallback if cgo is ruled out.
 - **`github.com/tursodatabase/libsql-client-go` alone (drop local + in-memory).** Rejected:
   it abandons the in-memory and local-file targets the conformance suite requires, including
   the shared-backing file pair.
+- **`turso.tech/database/tursogo` (CGO-free, purego) for local + `libsql-client-go` for
+  remote.** Evaluated and deferred. This is Turso's recommended pure-Go layout and avoids cgo,
+  but it runs the BETA Turso Database (Rust) engine for the local store of record and pairs it
+  with the production libSQL engine for remote — two different engines *and* two different
+  concurrency models (MVCC versus single-writer/WAL) behind one `EventStore`, the widest
+  parity gap of the options. Revisit at Turso Database GA (see Decision).
