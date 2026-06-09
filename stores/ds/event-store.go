@@ -221,7 +221,9 @@ func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we
 
 func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) error {
 	if len(events) == 0 {
-		return errors.New("attempted to publish empty list of events")
+		// KAO - an empty publish is a no-op, not an error: "nothing to record" is a
+		// normal state outcome, not an infrastructure failure (CONFORMANCE-S3).
+		return nil
 	}
 
 	err := retry.Do(

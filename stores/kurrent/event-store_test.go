@@ -26,6 +26,13 @@ func TestEventStore(t *testing.T) {
 		suite.Run(t)
 	})
 
+	t.Run("kurrentdb shared-backing validation", func(t *testing.T) {
+		// A second instance over the same KurrentDB client shares one backing.
+		second := NewEventStore(store.db, PageSize(5))
+		suite := we.NewSharedBackingSuite(ctx, store, second)
+		suite.Run(t)
+	})
+
 	t.Run("should batch publish", func(t *testing.T) {
 		var testId = we.AggregateId{Type: "test", Key: "should-batch-publish"}
 

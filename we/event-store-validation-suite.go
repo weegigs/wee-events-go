@@ -36,18 +36,39 @@ type StoreValidationEvent struct {
 	TestIntValue    int    `json:"test_int_value"`
 }
 
+// scenario pairs a subtest name with the suite method that implements it.
+type scenario struct {
+	name string
+	run  func(t *testing.T)
+}
+
+// scenarios returns the ordered set of single-store scenarios Run registers.
+// Exposing the set (rather than only calling t.Run inline) lets the suite's own
+// self-tests assert which scenarios are registered (CONFORMANCE-S1.R1/R3)
+// without faking testing.T, which is a concrete type.
+func (s *EventStoreValidationSuite) scenarios() []scenario {
+	return []scenario{
+		{"loads an initial revision", s.LoadInitial},
+		{"loads a revision with events", s.LoadsRevisionWithEvents},
+		{"publishes single event", s.PublishesSingleEvent},
+		{"publishes multiple events in a single transaction", s.PublishesMultipleEvents},
+		{"preserves the event content when recording", s.ValidateEventContent},
+		{"published with an expected initial revision", s.PublishesWithAnExpectedInitialRevision},
+		{"published with an expected revision", s.PublishesWithAnExpectedRevision},
+		{"published with an expected revision past ten events", s.PublishesWithAnExpectedRevisionPastTenEvents},
+		{"returns a revision conflict with an initial revision", s.RevisionConflictOnInitialRevision},
+		{"returns a revision conflict on subsequent revision", s.RevisionConflictOnSubsequentRevision},
+		{"detects a stale revision and a retry then succeeds", s.StaleRevisionDetectedAndRetrySucceeds},
+		{"treats an empty publish as a no-op returning the current revision", s.EmptyPublishReturnsCurrentRevision},
+		{"preserves event ordering across separately published batches", s.EventOrderingPreserved},
+		{"supports causation id", s.Causation},
+	}
+}
+
 func (s *EventStoreValidationSuite) Run(t *testing.T) {
-	t.Run("loads an initial revision", s.LoadInitial)
-	t.Run("loads a revision with events", s.LoadsRevisionWithEvents)
-	t.Run("publishes single event", s.PublishesSingleEvent)
-	t.Run("publishes multiple events in a single transaction", s.PublishesMultipleEvents)
-	t.Run("preserves the event content when recording", s.ValidateEventContent)
-	t.Run("published with an expected initial revision", s.PublishesWithAnExpectedInitialRevision)
-	t.Run("published with an expected revision", s.PublishesWithAnExpectedRevision)
-	t.Run("published with an expected revision past ten events", s.PublishesWithAnExpectedRevisionPastTenEvents)
-	t.Run("returns a revision conflict with an initial revision", s.RevisionConflictOnInitialRevision)
-	t.Run("returns a revision conflict on subsequent revision", s.RevisionConflictOnSubsequentRevision)
-	t.Run("supports causation id", s.Causation)
+	for _, scenario := range s.scenarios() {
+		t.Run(scenario.name, scenario.run)
+	}
 }
 
 func (s *EventStoreValidationSuite) MakeTestAggregateId() AggregateId {
@@ -314,4 +335,211 @@ func (s *EventStoreValidationSuite) PublishesWithAnExpectedRevisionPastTenEvents
 
 	err = s.ExpectEventCount(t, aggregateId, 13)
 	assert.Nil(t, err)
+}
+
+// StaleRevisionDetectedAndRetrySucceeds exercises the optimistic-retry path end
+// to end (CONFORMANCE-S2). The aggregate is loaded, a concurrent write advances
+// its revision, a publish carrying the now-stale expected revision must conflict,
+// and a reload-and-retry with the fresh expected revision must then succeed. The
+// store leaves three events in strictly ascending order.
+func (s *EventStoreValidationSuite) StaleRevisionDetectedAndRetrySucceeds(t *testing.T) {
+	aggregateId := s.MakeTestAggregateId()
+
+	// Seed the aggregate so a non-initial revision is observed.
+	err := s.store.Publish(s.ctx, aggregateId, Options(), s.MakeTestEvent())
+	require.NoError(t, err)
+
+	// The caller loads the aggregate and remembers the revision it intends to
+	// build on.
+	loaded, err := s.store.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	staleRevision := loaded.Revision
+
+	// A concurrent writer advances the aggregate, making staleRevision stale.
+	err = s.store.Publish(s.ctx, aggregateId, Options(), s.MakeTestEvent())
+	require.NoError(t, err)
+
+	// CONFORMANCE-S2.R1 / R4: publishing against the stale expected revision must
+	// fail with a revision conflict; accepting it would silently drop the
+	// concurrent commit.
+	err = s.store.Publish(s.ctx, aggregateId, Options(WithExpectedRevision(staleRevision)), s.MakeTestEvent())
+	require.Error(t, err)
+	require.Equal(t, RevisionConflict, err)
+
+	// The conflict must not have recorded anything.
+	require.NoError(t, s.ExpectEventCount(t, aggregateId, 2))
+
+	// CONFORMANCE-S2.R2: reload to obtain the fresh expected revision and retry.
+	reloaded, err := s.store.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	require.NotEqual(t, staleRevision, reloaded.Revision)
+
+	err = s.store.Publish(s.ctx, aggregateId, Options(WithExpectedRevision(reloaded.Revision)), s.MakeTestEvent())
+	require.NoError(t, err)
+
+	// CONFORMANCE-S2.R3: the aggregate now holds all three events in ascending
+	// revision order.
+	final, err := s.store.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	require.Equal(t, 3, len(final.Events))
+	assertAscendingRevisions(t, final.Events)
+}
+
+// EmptyPublishReturnsCurrentRevision treats publishing an empty event list as a
+// no-op state outcome rather than an error (CONFORMANCE-S3). Since
+// EventStore.Publish returns only error, the unchanged revision and event set
+// are verified through a follow-up Load.
+func (s *EventStoreValidationSuite) EmptyPublishReturnsCurrentRevision(t *testing.T) {
+	aggregateId := s.MakeTestAggregateId()
+
+	err := s.store.Publish(s.ctx, aggregateId, Options(), s.MakeTestEvents(3)...)
+	require.NoError(t, err)
+
+	before, err := s.store.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+
+	// CONFORMANCE-S3.R1 / R3: an empty publish is a no-op and must not error.
+	err = s.store.Publish(s.ctx, aggregateId, Options())
+	require.NoError(t, err)
+
+	// CONFORMANCE-S3.R2 / R3: revision and event set are unchanged by the no-op.
+	after, err := s.store.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	assert.Equal(t, before.Revision, after.Revision)
+	require.Equal(t, len(before.Events), len(after.Events))
+	for i := range before.Events {
+		assert.Equal(t, before.Events[i].Revision, after.Events[i].Revision)
+		assert.Equal(t, before.Events[i].EventID, after.Events[i].EventID)
+	}
+}
+
+// EventOrderingPreserved asserts that events recorded across separately
+// published batches load back in strictly ascending revision order with no
+// duplicates (CONFORMANCE-S4).
+func (s *EventStoreValidationSuite) EventOrderingPreserved(t *testing.T) {
+	aggregateId := s.MakeTestAggregateId()
+
+	// Three separate publish calls, so ordering must hold across batch
+	// boundaries rather than only within a single transaction.
+	require.NoError(t, s.store.Publish(s.ctx, aggregateId, Options(), s.MakeTestEvents(2)...))
+	require.NoError(t, s.store.Publish(s.ctx, aggregateId, Options(), s.MakeTestEvents(3)...))
+	require.NoError(t, s.store.Publish(s.ctx, aggregateId, Options(), s.MakeTestEvent()))
+
+	loaded, err := s.store.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	require.Equal(t, 6, len(loaded.Events))
+	assertAscendingRevisions(t, loaded.Events)
+}
+
+// assertAscendingRevisions fails the test if the recorded events are not in
+// strictly ascending revision order or if any revision is duplicated
+// (CONFORMANCE-S2.R3, CONFORMANCE-S4.R1/R2).
+func assertAscendingRevisions(t *testing.T, events []RecordedEvent) {
+	t.Helper()
+	for i := 1; i < len(events); i++ {
+		previous := events[i-1].Revision
+		current := events[i].Revision
+		assert.NotEqual(t, previous, current, "duplicate revision %s at index %d", current, i)
+		assert.Less(t, previous.String(), current.String(),
+			"revision %s at index %d is not strictly greater than %s at index %d",
+			current, i, previous, i-1)
+	}
+}
+
+// NewSharedBackingSuite builds a paired conformance suite over two EventStore
+// instances that share one backing (CONFORMANCE-S5.R1). A backend opts in by
+// constructing two instances over the same store — a SQLite file, the same
+// DynamoDB table, the same Kurrent/NATS server — and calling Run.
+func NewSharedBackingSuite(ctx context.Context, a, b EventStore) *SharedBackingSuite {
+	return &SharedBackingSuite{
+		a:     a,
+		b:     b,
+		ctx:   ctx,
+		faker: faker.New(),
+	}
+}
+
+type SharedBackingSuite struct {
+	a     EventStore
+	b     EventStore
+	ctx   context.Context
+	faker faker.Faker
+}
+
+func (s *SharedBackingSuite) scenarios() []scenario {
+	return []scenario{
+		{"blind appends succeed across store instances", s.BlindAppendsSucceedAcrossStoreInstances},
+		{"stale revision conflicts across store instances", s.StaleRevisionConflictsAcrossStoreInstances},
+	}
+}
+
+func (s *SharedBackingSuite) Run(t *testing.T) {
+	for _, scenario := range s.scenarios() {
+		t.Run(scenario.name, scenario.run)
+	}
+}
+
+func (s *SharedBackingSuite) makeTestAggregateId() AggregateId {
+	return AggregateId{
+		Type: "go-test",
+		Key:  ulid.MustNew(ulid.Timestamp(time.Now()), entropy).String(),
+	}
+}
+
+func (s *SharedBackingSuite) makeTestEvent() StoreValidationEvent {
+	return StoreValidationEvent{
+		TestStringValue: s.faker.Lorem().Sentence(10),
+		TestIntValue:    s.faker.Int(),
+	}
+}
+
+// BlindAppendsSucceedAcrossStoreInstances verifies that two independent
+// instances over one backing both persist their writes and each observes the
+// other's commits on a subsequent Load (CONFORMANCE-S5.R2 / R5).
+func (s *SharedBackingSuite) BlindAppendsSucceedAcrossStoreInstances(t *testing.T) {
+	aggregateId := s.makeTestAggregateId()
+
+	require.NoError(t, s.a.Publish(s.ctx, aggregateId, Options(), s.makeTestEvent()))
+	require.NoError(t, s.b.Publish(s.ctx, aggregateId, Options(), s.makeTestEvent()))
+
+	// Each instance must see both commits, regardless of which instance wrote.
+	fromA, err := s.a.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(fromA.Events))
+	assertAscendingRevisions(t, fromA.Events)
+
+	fromB, err := s.b.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(fromB.Events))
+	assertAscendingRevisions(t, fromB.Events)
+
+	assert.Equal(t, fromA.Revision, fromB.Revision)
+}
+
+// StaleRevisionConflictsAcrossStoreInstances verifies that a revision loaded
+// from instance A conflicts after instance B advances the aggregate
+// (CONFORMANCE-S5.R3 / R5).
+func (s *SharedBackingSuite) StaleRevisionConflictsAcrossStoreInstances(t *testing.T) {
+	aggregateId := s.makeTestAggregateId()
+
+	require.NoError(t, s.a.Publish(s.ctx, aggregateId, Options(), s.makeTestEvent()))
+
+	// Instance A loads the current revision and intends to build on it.
+	loaded, err := s.a.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	staleRevision := loaded.Revision
+
+	// Instance B advances the aggregate over the shared backing.
+	require.NoError(t, s.b.Publish(s.ctx, aggregateId, Options(), s.makeTestEvent()))
+
+	// A's publish carrying the now-stale expected revision must conflict.
+	err = s.a.Publish(s.ctx, aggregateId, Options(WithExpectedRevision(staleRevision)), s.makeTestEvent())
+	require.Error(t, err)
+	require.Equal(t, RevisionConflict, err)
+
+	// The conflict must not have recorded A's event; only the two committed
+	// events remain.
+	final, err := s.b.Load(s.ctx, aggregateId)
+	require.NoError(t, err)
+	assert.Equal(t, 2, len(final.Events))
 }

@@ -46,6 +46,13 @@ func TestDynamoDBStore(t *testing.T) {
 		suite.Run(t)
 	})
 
+	t.Run("dynamodb shared-backing validation", func(t *testing.T) {
+		// A second instance over the same client and table shares one backing.
+		second := NewEventStore(store.db, EventStoreTableName(store.table))
+		suite := we.NewSharedBackingSuite(ctx, store, second)
+		suite.Run(t)
+	})
+
 	t.Run("removes details for entities", func(t *testing.T) {
 		event := Tested{
 			TestStringValue: "test string",
