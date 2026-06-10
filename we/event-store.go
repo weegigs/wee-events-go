@@ -23,9 +23,39 @@ func Publisher(store EventStore) EventPublisher {
 
 var RevisionConflict = errors.New("revision-conflict")
 
+var NilEncoder = errors.New("encoder must not be nil")
+
 type PublishOptions struct {
 	RecordedEventMetadata
 	ExpectedRevision Revision
+
+	encoder    Encoder
+	encoderSet bool
+}
+
+// WithEncoder overrides the store's constructor encoder for one publish
+// (ENCODING-S2.R3, ADR-0007). The override is explicit at the call site; a
+// nil override is a publish error, never a silent fallback (ENCODING-S2.R5).
+func WithEncoder(encoder Encoder) PublishOption {
+	return func(modifier *PublishOptions) {
+		modifier.encoder = encoder
+		modifier.encoderSet = true
+	}
+}
+
+// EncoderFor resolves the encoder a publish must use: the explicit per-publish
+// override when present, otherwise the store's own encoder. It returns an
+// error only when the override is an explicit nil — NilEncoder, per
+// ENCODING-S2.R5; stores must fail the publish with that error prefixed with
+// the store name and record nothing.
+func (o PublishOptions) EncoderFor(storeEncoder Encoder) (Encoder, error) {
+	if !o.encoderSet {
+		return storeEncoder, nil
+	}
+	if o.encoder == nil {
+		return nil, NilEncoder
+	}
+	return o.encoder, nil
 }
 
 type PublishOption func(modifier *PublishOptions)
