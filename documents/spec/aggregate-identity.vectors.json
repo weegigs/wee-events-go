@@ -1,0 +1,317 @@
+{
+  "spec": "aggregate-identity",
+  "version": 1,
+  "construct": [
+    {
+      "type": "counter",
+      "key": "live-1",
+      "valid": true
+    },
+    {
+      "type": "order-line-v2",
+      "key": "01HX-abc_2026.06.10@final",
+      "valid": true
+    },
+    {
+      "type": "inventory",
+      "key": "kevin|card|boots",
+      "valid": true
+    },
+    {
+      "type": "user",
+      "key": "kevin@example.com",
+      "valid": true
+    },
+    {
+      "type": "base-64",
+      "key": "A",
+      "valid": true
+    },
+    {
+      "type": "a",
+      "key": "0",
+      "valid": true
+    },
+    {
+      "type": "run",
+      "key": ".well-known",
+      "valid": true
+    },
+    {
+      "type": "run",
+      "key": "a|..|b",
+      "valid": true
+    },
+    {
+      "type": "run",
+      "key": "v1..2",
+      "valid": true
+    },
+    {
+      "type": "",
+      "key": "k",
+      "valid": false,
+      "reason": "empty-type"
+    },
+    {
+      "type": "counter",
+      "key": "",
+      "valid": false,
+      "reason": "empty-key"
+    },
+    {
+      "type": "Counter",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "a~b",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "2fa",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "-a",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "a-",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "a--b",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "a_b",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "a.b",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "a@b",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "a|b",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "counter:evil",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "cust/omer",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "Ω",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "counter",
+      "key": "k~v",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "tenant:42",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "has space",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "a%20b",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "a*b",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "a/b",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": ".",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "..",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "|k",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "k|",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "a||b",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "counter",
+      "key": "café",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "type": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "k",
+      "valid": true
+    },
+    {
+      "type": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "key": "k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "type": "t",
+      "key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+      "valid": true
+    },
+    {
+      "type": "t",
+      "key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+      "valid": false,
+      "reason": "invalid-key"
+    }
+  ],
+  "parse": [
+    {
+      "input": "counter:live-1",
+      "valid": true,
+      "type": "counter",
+      "key": "live-1"
+    },
+    {
+      "input": "gift-card:kevin|card|boots",
+      "valid": true,
+      "type": "gift-card",
+      "key": "kevin|card|boots"
+    },
+    {
+      "input": "user:kevin@example.com",
+      "valid": true,
+      "type": "user",
+      "key": "kevin@example.com"
+    },
+    {
+      "input": "run:a|..|b",
+      "valid": true,
+      "type": "run",
+      "key": "a|..|b"
+    },
+    {
+      "input": "run:v1..2",
+      "valid": true,
+      "type": "run",
+      "key": "v1..2"
+    },
+    {
+      "input": "counter",
+      "valid": false,
+      "reason": "missing-separator"
+    },
+    {
+      "input": "",
+      "valid": false,
+      "reason": "missing-separator"
+    },
+    {
+      "input": ":key",
+      "valid": false,
+      "reason": "empty-type"
+    },
+    {
+      "input": "type:",
+      "valid": false,
+      "reason": "empty-key"
+    },
+    {
+      "input": "Counter:k",
+      "valid": false,
+      "reason": "invalid-type"
+    },
+    {
+      "input": "counter:a:b",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "input": "counter:k~v",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "input": "counter:a||b",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "input": "counter:..",
+      "valid": false,
+      "reason": "invalid-key"
+    },
+    {
+      "input": "counter: k",
+      "valid": false,
+      "reason": "invalid-key"
+    }
+  ]
+}
