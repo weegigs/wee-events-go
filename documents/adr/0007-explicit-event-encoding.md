@@ -20,9 +20,14 @@ to the write path.
 ## Decision
 
 There is no default event encoding. `MarshalToData` requires an `Encoder` argument, and
-every store constructor takes an explicit `we.Encoder` it uses for all writes. A `nil`
-encoder is a constructor error. Encoding is a per-store-instance decision; `Publish`
-offers no per-call override (a stream's encoding must not vary call-by-call).
+every store constructor takes an explicit `we.Encoder` it uses for writes. A `nil`
+encoder is a constructor error. A publish site may override the store's encoder
+explicitly via `PublishOptions` (`we.WithEncoder`); the override governs that publish
+only, and a `nil` override is a publish error, never a silent fallback. The rule is
+uniform: every encoding in effect was named by a caller — at construction or at the
+call site — and no code path selects one on its own. Mixed-encoding streams are safe by
+design: the envelope is self-describing and decoding dispatches per event
+(CBOR-S2.R2).
 
 JSON remains the **recommended** encoding wherever interop with the Rust/TypeScript
 families or existing JSON streams matters — recommended here, in the samples, and in the
@@ -44,9 +49,11 @@ suite (which all pass `we.MakeJSONEncoder()` explicitly), but never assumed by c
 - **Keep the implicit JSON default (status quo).** Rejected: a hidden package-level
   global the owner has explicitly ruled against; the cost of explicitness is one
   argument per construction site.
-- **Per-publish encoder selection.** Rejected: noisier at every call site for no added
-  safety, and it invites a single stream carrying mixed encodings chosen accidentally —
-  the stream-level property is exactly what should be fixed at construction.
+- **Constructor-only encoding (no per-publish override).** Rejected by the owner:
+  the flexibility is significant and the mechanism cheap — the read path already
+  handles mixed-encoding streams per event, so uniformity-per-stream was a stricter
+  invariant than the architecture requires. An explicit call-site override is not an
+  implicit default.
 - **A configurable global default.** Rejected for the same reason ADR-0001 rejected it:
   two deployments could silently disagree about the bytes for the same stream; a global
   knob is implicitness with extra steps.
