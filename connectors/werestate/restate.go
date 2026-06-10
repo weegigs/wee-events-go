@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"maps"
 	"net/http"
 
@@ -62,15 +63,21 @@ func (r *EntityResponse) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if id, ok := resource["$id"].(string); ok {
-		r.ID = we.EncodedAggregateId(id)
+	id, ok := resource["$id"].(string)
+	if !ok {
+		return fmt.Errorf("werestate: entity response missing or non-string $id (got %T)", resource["$id"])
 	}
-	if typ, ok := resource["$type"].(string); ok {
-		r.Type = we.EntityType(typ)
+	typ, ok := resource["$type"].(string)
+	if !ok {
+		return fmt.Errorf("werestate: entity response missing or non-string $type (got %T)", resource["$type"])
 	}
-	if revision, ok := resource["$revision"].(string); ok {
-		r.Revision = we.Revision(revision)
+	revision, ok := resource["$revision"].(string)
+	if !ok {
+		return fmt.Errorf("werestate: entity response missing or non-string $revision (got %T)", resource["$revision"])
 	}
+	r.ID = we.EncodedAggregateId(id)
+	r.Type = we.EntityType(typ)
+	r.Revision = we.Revision(revision)
 
 	delete(resource, "$id")
 	delete(resource, "$type")

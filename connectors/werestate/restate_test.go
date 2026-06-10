@@ -363,6 +363,26 @@ func TestEncodeKeyRejectsEmptyFields(t *testing.T) {
 	})
 }
 
+// SURFACE-S3.R2 — a corrupt journal entry errors; it never replays as a
+// zero-valued success.
+func TestEntityResponseRejectsCorruptJournal(t *testing.T) {
+	cases := []struct {
+		name, payload, field string
+	}{
+		{"missing $id", `{"$type":"t","$revision":"r","x":1}`, "$id"},
+		{"non-string $revision", `{"$id":"a:b","$type":"t","$revision":7,"x":1}`, "$revision"},
+		{"missing $type", `{"$id":"a:b","$revision":"r","x":1}`, "$type"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var r EntityResponse
+			err := json.Unmarshal([]byte(tc.payload), &r)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.field)
+		})
+	}
+}
+
 // RESTATE-S4.R2 — phase 1 scope is execute/load/idempotency only; no
 // effect-routing surface is exposed by the connector.
 func TestPhaseOneScopeHasNoEffectRouting(t *testing.T) {
