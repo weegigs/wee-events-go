@@ -15,8 +15,10 @@ default so existing stores and Go/Rust interop are unaffected.
 
 ## Decisions
 
-- [ADR-0001](../adr/0001-default-event-encoding-json.md) — JSON is the default event
-  encoding; CBOR is opt-in.
+- ADR-0001 — JSON is the default event encoding; CBOR is opt-in. *(Superseded and
+  removed: [ADR-0007](../adr/0007-explicit-event-encoding.md) ended the implicit
+  default — encoding is now an explicit constructor argument, with JSON the
+  recommendation. This feature shipped under the original decision.)*
 - [ADR-0002](../adr/0002-cbor-library-fxamacker.md) — CBOR is provided by
   `github.com/fxamacker/cbor/v2`.
 
@@ -56,7 +58,9 @@ written with, so that a stream containing both JSON and CBOR events rebuilds cor
 and wire-compatible, so that existing stores and cross-language interop are unaffected.*
 
 - **CBOR-S3.R1** (ubiquitous) — The framework shall use `application/json` as the default
-  event encoder. *(See ADR-0001.)*
+  event encoder. *(Original decision ADR-0001 — superseded by
+  [ADR-0007](../adr/0007-explicit-event-encoding.md): there is no implicit default
+  any more; Feature 08 carries the replacement requirement.)*
 - **CBOR-S3.R2** (event-driven) — When a payload stored as `application/json` is decoded,
   the framework shall produce a value byte-for-byte equivalent to the pre-feature
   behaviour.

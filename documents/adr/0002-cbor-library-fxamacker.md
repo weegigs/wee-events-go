@@ -1,7 +1,7 @@
 # ADR-0002 — Use `fxamacker/cbor/v2` for CBOR
 
 - **Status:** Accepted
-- **Relates to:** [features/01-cbor-codec.md](../features/01-cbor-codec.md) · [ADR-0001](0001-default-event-encoding-json.md)
+- **Relates to:** [features/01-cbor-codec.md](../features/01-cbor-codec.md) · [ADR-0007](0007-explicit-event-encoding.md)
 
 ## Context
 

@@ -44,7 +44,8 @@ func UnknownEncoding(actual string) error {
 }
 
 // defaultEncoder is the framework's default event encoder. JSON is the default
-// so existing stores and Go/Rust interop are unaffected (CBOR-S3.R1, ADR-0001).
+// so existing stores and Go/Rust interop are unaffected (CBOR-S3.R1; originally
+// ADR-0001, superseded by ADR-0007 — Feature 08 removes this implicit default).
 var defaultEncoder Encoder = MakeJSONEncoder()
 
 // defaultDecoders dispatches by the envelope's encoding across the built-in

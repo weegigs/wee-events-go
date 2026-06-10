@@ -9,7 +9,8 @@
 
 Remove the implicit write-encoding default. Today `we.MarshalToData` silently falls back
 to the JSON encoder, so every store writes JSON without any caller ever having chosen
-it — a hidden package-level default ([ADR-0001](../adr/0001-default-event-encoding-json.md)).
+it — a hidden package-level default (originally ADR-0001, since superseded and removed;
+[ADR-0007](../adr/0007-explicit-event-encoding.md) is the decision of record).
 The owner's direction: **all defaults must be explicit** — whoever constructs a store
 states its write encoding in code.
 

@@ -1,7 +1,9 @@
 # ADR-0007 — Event encoding is an explicit constructor argument
 
 - **Status:** Accepted
-- **Supersedes:** [ADR-0001](0001-default-event-encoding-json.md)
+- **Supersedes:** ADR-0001 (*JSON is the default event encoding* — removed from the
+  repository per the supersession convention; everything that survives from it is
+  restated here)
 - **Relates to:** [features/08-explicit-event-encoding.md](../features/08-explicit-event-encoding.md) · [ADR-0002](0002-cbor-library-fxamacker.md)
 
 ## Context
@@ -41,8 +43,9 @@ suite (which all pass `we.MakeJSONEncoder()` explicitly), but never assumed by c
   parity guarantees carry over unchanged (CBOR-S3.R2 remains the oracle).
 - The constructor surface of every store changes (breaking, pre-release): one added
   required parameter.
-- ADR-0001's status becomes Superseded; its interop rationale survives as this ADR's
-  recommendation rather than as a hidden default.
+- ADR-0001 is removed from the repository (superseded decisions are not kept as
+  distractors); its decision is summarised in the Context above and its interop
+  rationale survives as this ADR's recommendation rather than as a hidden default.
 
 ## Alternatives considered
 

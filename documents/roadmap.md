@@ -114,7 +114,7 @@ not edited). Current log:
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](adr/0001-default-event-encoding-json.md) | JSON is the default event encoding | Superseded by 0007 |
+| 0001 | JSON is the default event encoding | Superseded by 0007 — removed |
 | [0002](adr/0002-cbor-library-fxamacker.md) | Use `fxamacker/cbor/v2` for CBOR | Accepted |
 | [0003](adr/0003-sqlite-driver-libsql.md) | Use `go-libsql` for the SQLite/libSQL store | Accepted |
 | [0004](adr/0004-restate-go-sdk.md) | Use the Restate Go SDK; wire dispatch manually | Accepted |
