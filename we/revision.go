@@ -8,6 +8,12 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
+// Revision is an opaque per-store ordering token: incremental and
+// lexicographically comparable within one aggregate's stream — nothing more.
+// Its byte layout is store-specific (ULID-derived in some backends, fixed-
+// width hex in others) and it is NOT convertible to a timestamp: a hex
+// revision parses as plausible base32 and would yield a confident garbage
+// date (SURFACE-S3.R3). Event times live on RecordedEvent.Timestamp.
 type Revision string
 
 const InitialRevision = Revision("00000000000000000000000000")
@@ -31,11 +37,6 @@ func (g *RevisionGenerator) NewRevision(t time.Time) Revision {
 	defer g.lk.Unlock()
 
 	return Revision(ulid.MustNew(ulid.Timestamp(t), g.entropy).String())
-}
-
-func (revision Revision) Timestamp() Timestamp {
-	v := ulid.MustParse(string(revision))
-	return Timestamp(ulid.Time(v.Time()).UTC().Format(RFC3339Milli))
 }
 
 func (revision Revision) String() string {
