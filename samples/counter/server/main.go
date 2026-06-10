@@ -21,9 +21,14 @@ func configureTracing() (func(), error) {
 		return nil, err
 	}
 
+	res, err := traceResource()
+	if err != nil {
+		return nil, err
+	}
+
 	tp := trace.NewTracerProvider(
 		trace.WithBatcher(exporter),
-		trace.WithResource(traceResource()),
+		trace.WithResource(res),
 	)
 
 	cleanup := func() {
@@ -39,12 +44,12 @@ func configureTracing() (func(), error) {
 
 func main() {
 
-	traceingCleanup, err := configureTracing()
+	tracingCleanup, err := configureTracing()
 	if err != nil {
 		log.Info().Err(err).Msg("failed to configure tracing")
 		os.Exit(1)
 	}
-	defer traceingCleanup()
+	defer tracingCleanup()
 
 	service, serviceCleanup, err := local(context.Background())
 	if err != nil {
