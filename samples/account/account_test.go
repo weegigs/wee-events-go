@@ -2,6 +2,7 @@ package account_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -109,7 +110,9 @@ func TestAccount(t *testing.T) {
 
 	t.Run("a command before the account is opened is rejected", func(t *testing.T) {
 		_, err := service.Execute(ctx, es.AggregateId{Type: "account", Key: "premature"}, account.Deposit{Amount: 50})
-		assert.ErrorIs(t, err, account.ErrNotOpen)
+		var rejection es.Rejection
+		require.True(t, errors.As(err, &rejection))
+		assert.Equal(t, "account.not-open", rejection.Code)
 	})
 
 	id := es.AggregateId{Type: "account", Key: "alice"}
@@ -125,7 +128,9 @@ func TestAccount(t *testing.T) {
 
 	t.Run("opening an already-open account is rejected", func(t *testing.T) {
 		_, err := service.Execute(ctx, id, account.Open{Owner: "mallory"})
-		assert.ErrorIs(t, err, account.ErrAlreadyOpen)
+		var rejection es.Rejection
+		require.True(t, errors.As(err, &rejection))
+		assert.Equal(t, "account.already-open", rejection.Code)
 	})
 
 	t.Run("deposits and withdrawals evolve the balance", func(t *testing.T) {
@@ -139,6 +144,8 @@ func TestAccount(t *testing.T) {
 
 	t.Run("withdrawing more than the balance is rejected", func(t *testing.T) {
 		_, err := service.Execute(ctx, id, account.Withdraw{Amount: 1000})
-		assert.ErrorIs(t, err, account.ErrInsufficientFunds)
+		var rejection es.Rejection
+		require.True(t, errors.As(err, &rejection))
+		assert.Equal(t, "account.insufficient-funds", rejection.Code)
 	})
 }

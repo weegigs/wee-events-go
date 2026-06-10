@@ -2,15 +2,10 @@ package account
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
+	"fmt"
 
 	es "github.com/weegigs/wee-events-go/we"
-)
-
-var (
-	ErrAlreadyOpen       = errors.New("account already open")
-	ErrNotOpen           = errors.New("account not open")
-	ErrInsufficientFunds = errors.New("insufficient funds")
 )
 
 // open is the creation command. A nil state means the genesis event has not
@@ -20,24 +15,28 @@ var (
 // silently overwriting one another.
 var open es.CommandHandlerFunction[Account, Open] = func(ctx context.Context, cmd Open, state es.Entity[Account], publish es.EventPublisher) error {
 	if state.State != nil {
-		return ErrAlreadyOpen
+		return es.MakeRejection("account.already-open", "account is already open", nil)
 	}
 	return publish(ctx, state.Aggregate, es.Options(es.WithExpectedRevision(state.Revision)), Opened(cmd))
 }
 
 var deposit es.CommandHandlerFunction[Account, Deposit] = func(ctx context.Context, cmd Deposit, state es.Entity[Account], publish es.EventPublisher) error {
 	if state.State == nil {
-		return ErrNotOpen
+		return es.MakeRejection("account.not-open", "account is not open", nil)
 	}
 	return publish(ctx, state.Aggregate, es.Options(es.WithExpectedRevision(state.Revision)), Deposited(cmd))
 }
 
 var withdraw es.CommandHandlerFunction[Account, Withdraw] = func(ctx context.Context, cmd Withdraw, state es.Entity[Account], publish es.EventPublisher) error {
 	if state.State == nil {
-		return ErrNotOpen
+		return es.MakeRejection("account.not-open", "account is not open", nil)
 	}
 	if cmd.Amount > state.State.Balance {
-		return ErrInsufficientFunds
+		payload, err := json.Marshal(map[string]int{"balance": state.State.Balance, "requested": cmd.Amount})
+		if err != nil {
+			return fmt.Errorf("account: failed to encode rejection context: %w", err)
+		}
+		return es.MakeRejection("account.insufficient-funds", "insufficient funds", payload)
 	}
 	return publish(ctx, state.Aggregate, es.Options(es.WithExpectedRevision(state.Revision)), Withdrawn(cmd))
 }
