@@ -12,6 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 var entropy = ulid.Monotonic(rand.New(rand.NewSource(time.Now().UnixNano())), 0)
@@ -62,6 +63,7 @@ func (s *EventStoreValidationSuite) scenarios() []scenario {
 		{"treats an empty publish as a no-op returning the current revision", s.EmptyPublishReturnsCurrentRevision},
 		{"preserves event ordering across separately published batches", s.EventOrderingPreserved},
 		{"supports causation id", s.Causation},
+		{"round-trips full-charset identities through storage", s.IdentityRoundTripsThroughStorage},
 	}
 }
 
@@ -453,6 +455,43 @@ func assertAscendingRevisions(t *testing.T, events []RecordedEvent) {
 			"revision %s at index %d is not strictly greater than %s at index %d",
 			current, i, previous, i-1)
 	}
+}
+
+// IdentityRoundTripsThroughStorage proves a backend stores and returns the
+// exact aggregate identity and payload for property-generated inputs across
+// the full charset grammar of both identity parts — generated types over the
+// RFC 3986 unreserved runes, generated keys additionally including the '|'
+// composite separator — and arbitrary unicode payload content
+// (IDENTITY-S4.R3, ADR-0009). This is the binding form of "stores adapt to
+// the key space" (IDENTITY-S4.R2): a backend that rejects, transforms,
+// truncates, or re-derives identity or payload fails here, whatever its
+// transport — present or future. Failures shrink to a minimal
+// identity/payload pair.
+func (s *EventStoreValidationSuite) IdentityRoundTripsThroughStorage(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		// A fresh ULID suffix keeps generated identities unique per iteration
+		// against the shared backing store.
+		base := s.MakeTestAggregateId()
+		typ := IdentityTypeGen().Draw(rt, "type")
+		key := IdentityKeyGen().Draw(rt, "key")
+		id, err := MakeAggregateId(typ, key+"|"+base.Key)
+		require.NoError(rt, err)
+
+		event := StoreValidationEvent{
+			TestStringValue: rapid.String().Draw(rt, "payload"), // arbitrary unicode, including empty
+			TestIntValue:    rapid.Int().Draw(rt, "count"),
+		}
+		require.NoError(rt, s.store.Publish(s.ctx, id, Options(), event))
+
+		loaded, err := s.store.Load(s.ctx, id)
+		require.NoError(rt, err)
+		require.Len(rt, loaded.Events, 1)
+		require.Equal(rt, id, loaded.Events[0].AggregateId)
+
+		var decoded StoreValidationEvent
+		require.NoError(rt, UnmarshalFromData(loaded.Events[0].Data, &decoded))
+		require.Equal(rt, event, decoded, "payload must round-trip verbatim")
+	})
 }
 
 // NewSharedBackingSuite builds a paired conformance suite over two EventStore

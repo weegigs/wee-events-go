@@ -38,6 +38,7 @@ func TestValidationSuiteRegistersScenarios(t *testing.T) {
 		"treats an empty publish as a no-op returning the current revision",
 		"preserves event ordering across separately published batches",
 		"published with an expected revision past ten events",
+		"round-trips full-charset identities through storage",
 	} {
 		assert.True(t, registered[required], "Run must register %q as a scenario", required)
 	}
