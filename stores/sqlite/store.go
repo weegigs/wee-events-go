@@ -49,6 +49,7 @@ var schema = []string{
 type Store struct {
 	db          *sql.DB
 	busyTimeout time.Duration
+	encoder     we.Encoder
 }
 
 // compile-time assertion that *Store satisfies the EventStore contract
@@ -117,9 +118,15 @@ func BusyTimeout(timeout time.Duration) Option {
 }
 
 // NewStore opens the configured target, applies the connection PRAGMAs, and
-// migrates the events table. It returns a usable *Store or an error and never
+// migrates the events table. The encoder is the store's explicit write
+// encoding (ENCODING-S2.R1); nil is a construction error, never a deferred
+// panic (ENCODING-S2.R2). It returns a usable *Store or an error and never
 // a half-built store (SQLITE-S1.R5, SQLITE-S3.R2).
-func NewStore(ctx context.Context, options ...Option) (*Store, error) {
+func NewStore(ctx context.Context, encoder we.Encoder, options ...Option) (*Store, error) {
+	if encoder == nil {
+		return nil, errors.New("sqlite: encoder is required")
+	}
+
 	cfg := config{busyTimeout: defaultBusyTimeout}
 	for _, option := range options {
 		if err := option(&cfg); err != nil {
@@ -157,6 +164,7 @@ func NewStore(ctx context.Context, options ...Option) (*Store, error) {
 	store := &Store{
 		db:          db,
 		busyTimeout: cfg.busyTimeout,
+		encoder:     encoder,
 	}
 
 	if err := store.prepare(ctx); err != nil {
@@ -258,10 +266,21 @@ ORDER BY revision ASC;`
 func (s *Store) Publish(ctx context.Context, id we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
 	if len(events) == 0 {
 		// Empty publish is a no-op (matches the suite's EmptyPublish semantics).
+		// The no-op deliberately short-circuits BEFORE override validation: with
+		// zero events the nil encoder is never used and nothing can be
+		// mis-recorded, so an empty publish is a state, not an error.
 		return nil
 	}
 
-	rows, err := encodeEvents(options, events)
+	// Resolve the publish encoder before encoding: an explicit per-publish
+	// override wins, and an explicit nil override is an error that records
+	// nothing (ENCODING-S2.R3, ENCODING-S2.R5).
+	encoder, err := options.EncoderFor(s.encoder)
+	if err != nil {
+		return fmt.Errorf("sqlite: %w", err)
+	}
+
+	rows, err := encodeEvents(encoder, options, events)
 	if err != nil {
 		return err
 	}
@@ -428,10 +447,10 @@ type eventRow struct {
 	data          []byte
 }
 
-func encodeEvents(options we.PublishOptions, events []we.DomainEvent) ([]eventRow, error) {
+func encodeEvents(encoder we.Encoder, options we.PublishOptions, events []we.DomainEvent) ([]eventRow, error) {
 	rows := make([]eventRow, len(events))
 	for i, event := range events {
-		data, err := we.MarshalToData(we.MakeJSONEncoder(), event)
+		data, err := we.MarshalToData(encoder, event)
 		if err != nil {
 			return nil, fmt.Errorf("sqlite: failed to encode event: %w", err)
 		}

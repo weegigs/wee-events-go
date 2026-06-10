@@ -22,7 +22,7 @@ type testEvent struct {
 func newMemoryStore(t *testing.T) *Store {
 	t.Helper()
 	ctx := context.Background()
-	store, err := NewStore(ctx, InMemory())
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	return store
@@ -31,7 +31,7 @@ func newMemoryStore(t *testing.T) *Store {
 func newFileStore(t *testing.T, path string) *Store {
 	t.Helper()
 	ctx := context.Background()
-	store, err := NewStore(ctx, LocalFile(path))
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), LocalFile(path))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	return store
@@ -76,7 +76,7 @@ func TestLoadInitial(t *testing.T) {
 // cannot be opened or migrated.
 func TestNewStoreRequiresTarget(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewStore(ctx)
+	store, err := NewStore(ctx, we.MakeJSONEncoder())
 	require.Error(t, err)
 	assert.Nil(t, store)
 }
@@ -84,14 +84,14 @@ func TestNewStoreRequiresTarget(t *testing.T) {
 func TestNewStoreInvalidLocalFile(t *testing.T) {
 	ctx := context.Background()
 	// A path under a non-existent directory cannot be opened or migrated.
-	store, err := NewStore(ctx, LocalFile(filepath.Join(t.TempDir(), "missing-dir", "events.db")))
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), LocalFile(filepath.Join(t.TempDir(), "missing-dir", "events.db")))
 	require.Error(t, err)
 	assert.Nil(t, store)
 }
 
 func TestNewStoreEmptyLocalFile(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewStore(ctx, LocalFile("  "))
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), LocalFile("  "))
 	require.Error(t, err)
 	assert.Nil(t, store)
 }
@@ -211,7 +211,8 @@ func TestPayloadRoundTrips(t *testing.T) {
 
 // SQLITE-S4.R3 — a payload written with an unknown encoding is stored and
 // returned unchanged, neither rejected nor rewritten. Written behind the
-// store because the public Publish path always encodes JSON; the store's
+// store because the public Publish path always encodes via a registered
+// encoder (constructor or explicit override); the store's
 // codec-agnostic contract is about what it persists and returns, not what the
 // caller chose to encode.
 func TestUnknownEncodingRoundTripsUnchanged(t *testing.T) {
@@ -378,12 +379,89 @@ func TestConcurrentAppendsSerialize(t *testing.T) {
 	}
 }
 
+// ENCODING-S2.R2 — a nil constructor encoder is an error, not a deferred panic.
+func TestNilEncoderRejectedAtConstruction(t *testing.T) {
+	store, err := NewStore(context.Background(), nil, InMemory())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "encoder is required")
+	assert.Nil(t, store)
+}
+
+// ENCODING-S2.R3 / ENCODING-S3.R2 — a CBOR override on a JSON store produces a
+// mixed-encoding stream that loads and decodes per event.
+func TestPerPublishEncoderOverride(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore(t) // JSON constructor encoder
+	id := makeAggregateId()
+
+	require.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "json"}))
+	require.NoError(t, store.Publish(ctx, id, we.Options(we.WithEncoder(we.MakeCBOREncoder())), testEvent{Value: "cbor"}))
+
+	loaded, err := store.Load(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, loaded.Events, 2)
+	assert.Equal(t, we.JSONEncoding, loaded.Events[0].Data.Encoding)
+	assert.Equal(t, we.CBOREncoding, loaded.Events[1].Data.Encoding)
+	for i, want := range []string{"json", "cbor"} {
+		var decoded testEvent
+		require.NoError(t, we.UnmarshalFromData(loaded.Events[i].Data, &decoded))
+		assert.Equal(t, want, decoded.Value)
+	}
+}
+
+// ENCODING-S3.R2 — a store constructed with the CBOR encoder publishes
+// envelopes carrying application/cbor with verbatim payload bytes.
+func TestCBORConstructorEncoderRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewStore(ctx, we.MakeCBOREncoder(), InMemory())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, store.Close()) })
+
+	id := makeAggregateId()
+	event := testEvent{Value: "cbor-constructor"}
+	require.NoError(t, store.Publish(ctx, id, we.Options(), event))
+
+	loaded, err := store.Load(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, loaded.Events, 1)
+
+	got := loaded.Events[0].Data
+	assert.Equal(t, we.CBOREncoding, got.Encoding)
+
+	// Verbatim bytes: the store persists exactly what the constructor encoder
+	// produced (fxamacker/cbor's default mode encodes this struct
+	// deterministically, so byte equality is sound).
+	want, err := we.MakeCBOREncoder().Encode(event)
+	require.NoError(t, err)
+	assert.Equal(t, []byte(want.Data), []byte(got.Data))
+
+	var decoded testEvent
+	require.NoError(t, we.UnmarshalFromData(got, &decoded))
+	assert.Equal(t, event, decoded)
+}
+
+// ENCODING-S2.R5 — an explicit nil override errors and records nothing.
+func TestNilEncoderOverrideRejectedAtPublish(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore(t)
+	id := makeAggregateId()
+
+	err := store.Publish(ctx, id, we.Options(we.WithEncoder(nil)), testEvent{Value: "x"})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, we.NilEncoder)
+	assert.Contains(t, err.Error(), "encoder must not be nil")
+
+	loaded, err := store.Load(ctx, id)
+	require.NoError(t, err)
+	assert.Empty(t, loaded.Events)
+}
+
 // Sanity: the conformance suite's RevisionConflict tests already cover the
 // caller-level loop; this guards that the store never silently swallows a
 // non-conflict driver error as success.
 func TestLoadOnClosedStoreErrors(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewStore(ctx, InMemory())
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory())
 	require.NoError(t, err)
 	require.NoError(t, store.Close())
 
