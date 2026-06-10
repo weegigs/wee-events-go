@@ -69,3 +69,10 @@ Comments are proceeded by the authors initials, eg:
 - KAO: Kevin O'Neill
 
 [let’s talk about logging]: https://dave.cheney.net/2015/11/05/lets-talk-about-logging
+
+## Writing documents
+
+Documents follow [`writing-documents.md`](writing-documents.md): decision
+first, cut-from-the-bottom structure, compression over coverage, objective
+third-person voice. Normative reference documents (specs, grammars) optimise
+for precision and lookup instead — see the exception there.
