@@ -3,6 +3,7 @@ package jetstream
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -64,8 +65,16 @@ type EventStore struct {
 	marshaller Marshaller
 }
 
+// subject derives the NATS subject for an aggregate from the canonical
+// encoded identity (IDENTITY-S4.R2). NATS reserves '.' as the subject token
+// separator, so a key containing '.' (a legal identity rune) would split into
+// tokens — or produce empty ones — and be rejected by the server. The
+// store-local encoding maps '.' to "%2E"; the mapping is deterministic and
+// injective because '%' lies outside the identity charset and therefore never
+// occurs in the canonical form. The remaining canonical runes (ALPHA, DIGIT,
+// '-', '_', '~', '|', and the ':' joiner) are all legal NATS token characters.
 func subject(aggregateId we.AggregateId) string {
-	return prefix + aggregateId.Encode().String()
+	return prefix + strings.ReplaceAll(aggregateId.Encode().String(), ".", "%2E")
 }
 
 func (es *EventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
