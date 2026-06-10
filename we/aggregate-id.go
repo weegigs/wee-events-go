@@ -2,11 +2,11 @@ package we
 
 import (
 	"fmt"
-	"strings"
 )
 
-// Reasons an aggregate identity is rejected (IDENTITY-S1.R6). The set is
-// closed so callers classify on the constant, never on message text.
+// Reasons an aggregate identity is rejected. The set is closed so callers
+// classify on the constant, never on message text
+// (documents/spec/aggregate-identity.md §Rejection reasons).
 const (
 	ReasonEmptyType        = "empty-type"
 	ReasonEmptyKey         = "empty-key"
@@ -27,46 +27,90 @@ func (e *InvalidAggregateIdError) Error() string {
 	return fmt.Sprintf("invalid aggregate id (type %q, key %q): %s", e.Type, e.Key, e.Reason)
 }
 
-// identityTypeRunes / identityKeyRunes are the identity charsets
-// (IDENTITY-S1.R4, ADR-0008): RFC 3986 unreserved for types, plus '|' — the
-// composite-key segment separator — for keys (IDENTITY-S1.R8). They are
-// defined by identity-domain concerns alone — legibility, lossless
-// encodability, non-ambiguity (no ':', no '%', no whitespace, no pattern
-// metacharacters) — never by any store's transport: stores adapt to this key
-// space, encoding store-locally if their transport ever requires it
-// (IDENTITY-S4).
+// Length caps in octets (documents/spec/aggregate-identity.md §Grammar).
 const (
-	identityTypeRunes = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
-	identityKeyRunes  = identityTypeRunes + "|"
+	maxIdentityTypeOctets = 64
+	maxIdentityKeyOctets  = 512
 )
 
-// validIdentityPart reports whether s is non-empty, not a URL dot-segment, and
-// made only of the given charset.
-func validIdentityPart(s string, runes string) bool {
-	if s == "" || s == "." || s == ".." {
+// identityTypeRunes / identityKeyRunes list every rune the grammar admits in
+// each part (documents/spec/aggregate-identity.md). Placement rules — token
+// and segment shape, length caps, the whole-key dot rule — live in the
+// validators below; the spec is normative, these constants are not.
+const (
+	identityTypeRunes = "abcdefghijklmnopqrstuvwxyz0123456789-"
+	identityKeyRunes  = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._@|"
+)
+
+// validIdentityType implements the type grammar: kebab-case tokens of
+// [a-z0-9] joined by single hyphens, first token starting with a letter,
+// at most 64 octets. Byte iteration is exact — any non-ASCII byte falls to
+// the default arm.
+func validIdentityType(s string) bool {
+	if s == "" || len(s) > maxIdentityTypeOctets {
 		return false
 	}
-	for _, r := range s {
-		if !strings.ContainsRune(runes, r) {
+	if s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	previousHyphen := false
+	for i := 1; i < len(s); i++ {
+		switch c := s[i]; {
+		case ('a' <= c && c <= 'z') || ('0' <= c && c <= '9'):
+			previousHyphen = false
+		case c == '-':
+			if previousHyphen {
+				return false
+			}
+			previousHyphen = true
+		default:
 			return false
 		}
 	}
-	return true
+	return !previousHyphen
+}
+
+// validIdentityKey implements the key grammar: segments of
+// [A-Za-z0-9._@-] joined by single pipes, at most 512 octets, and the key
+// as a whole is never "." or ".." (the URL dot-segment rule is whole-key
+// only — interior dots are opaque data).
+func validIdentityKey(s string) bool {
+	if s == "" || len(s) > maxIdentityKeyOctets || s == "." || s == ".." {
+		return false
+	}
+	previousBoundary := true // the start of the key opens a segment
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9'),
+			c == '-', c == '.', c == '_', c == '@':
+			previousBoundary = false
+		case c == '|':
+			if previousBoundary {
+				return false
+			}
+			previousBoundary = true
+		default:
+			return false
+		}
+	}
+	return !previousBoundary
 }
 
 // MakeAggregateId is the validating constructor for untrusted identity parts
-// (IDENTITY-S1). Emptiness is reported with its own reason; everything else
-// outside the charsets is invalid-type/invalid-key. Keys are opaque: '|' is
-// the documented composite convention, never parsed here.
+// (IDENTITY-S1; normative grammar documents/spec/aggregate-identity.md).
+// Emptiness is reported with its own reason; every other violation —
+// charset, shape, or length — is invalid-type/invalid-key. Keys are
+// semantically opaque: the grammar guarantees segment well-formedness,
+// nothing here interprets segments.
 func MakeAggregateId(aggregateType string, key string) (AggregateId, error) {
 	switch {
 	case aggregateType == "":
 		return AggregateId{}, &InvalidAggregateIdError{Type: aggregateType, Key: key, Reason: ReasonEmptyType}
 	case key == "":
 		return AggregateId{}, &InvalidAggregateIdError{Type: aggregateType, Key: key, Reason: ReasonEmptyKey}
-	case !validIdentityPart(aggregateType, identityTypeRunes):
+	case !validIdentityType(aggregateType):
 		return AggregateId{}, &InvalidAggregateIdError{Type: aggregateType, Key: key, Reason: ReasonInvalidType}
-	case !validIdentityPart(key, identityKeyRunes):
+	case !validIdentityKey(key):
 		return AggregateId{}, &InvalidAggregateIdError{Type: aggregateType, Key: key, Reason: ReasonInvalidKey}
 	}
 	return AggregateId{Type: aggregateType, Key: key}, nil
