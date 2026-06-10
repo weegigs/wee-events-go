@@ -23,9 +23,9 @@ unrepresentable within Go's limits.
 | [03](features/03-restate-integration.md) | Restate durable-execution connector | new `connectors/werestate/` | L | Done |
 | [04](features/04-storage-verification-tests.md) | Storage conformance test parity | `we/` + per-store tests | M | Done |
 | [05](features/05-rejection-error-taxonomy.md) | Structured rejection / error taxonomy | core `we/` + `wehttp` | M | Done |
-| [07](features/07-aggregate-identity.md) | Aggregate identity: canonical form + validated construction | core `we/` + stores + connectors | M | Ready |
-| [08](features/08-explicit-event-encoding.md) | Explicit event encoding (no implicit default) | core `we/` + stores + samples | M | Ready |
-| [09](features/09-error-surfacing.md) | Error surfacing: no fabricated values | core + stores + connectors + samples | M | Ready |
+| [07](features/07-aggregate-identity.md) | Aggregate identity: canonical form + validated construction | core `we/` + stores + connectors | M | Done |
+| [08](features/08-explicit-event-encoding.md) | Explicit event encoding (no implicit default) | core `we/` + stores + samples | M | Done |
+| [09](features/09-error-surfacing.md) | Error surfacing: no fabricated values | core + stores + connectors + samples | M | Done |
 
 Size is T-shirt complexity (XS/S/M/L/XL), not a time estimate.
 
@@ -105,6 +105,13 @@ Surfaced by the 01–05 work and its reviews; recorded for later, not yet schedu
   subset, so Go-written identities are Rust-valid, but a Rust-written identity outside
   the charset fails Go's parser (loudly). Upstream the same validation to
   `crates/wee-events/src/id.rs`.
+- **KurrentDB client does not recover a closed gRPC connection.** Observed during the
+  Feature 07 conformance soaks: a transient connection drop (`ErrorCodeConnectionClosed`)
+  poisons every subsequent operation on the shared `kurrentdb.Client` for the remainder
+  of the process — the store never re-dials. One dropped connection during a test run
+  cascades into failures across unrelated tests sharing the client. Fix: reconnect or
+  surface a typed connection-state error from `stores/kurrent` so callers can rebuild
+  the client; until then a single drop is unrecoverable without process restart.
 
 ## Decisions
 

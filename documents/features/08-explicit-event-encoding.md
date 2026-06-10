@@ -1,6 +1,6 @@
 # Feature 08 — Explicit Event Encoding (No Implicit Default)
 
-- **Status:** Ready · **Size:** M · **Area:** core (`we/`) + all stores + samples/wiring
+- **Status:** Done · **Size:** M · **Area:** core (`we/`) + all stores + samples/wiring
 - **Coordinates with:** [Feature 07](07-aggregate-identity.md) (shared store files,
   disjoint functions — encoding seam vs key derivation)
 - **Prefix:** `ENCODING`

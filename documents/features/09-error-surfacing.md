@@ -1,6 +1,6 @@
 # Feature 09 — Error Surfacing: No Fabricated Values
 
-- **Status:** Ready · **Size:** M · **Area:** core (`we/`) + `stores/ds` + `stores/sqlite` + `stores/jetstream` + both connectors + samples
+- **Status:** Done · **Size:** M · **Area:** core (`we/`) + `stores/ds` + `stores/sqlite` + `stores/jetstream` + both connectors + samples
 - **Coordinates with:** [Feature 07](07-aggregate-identity.md) (shared
   `connectors/werestate/restate.go`, `connectors/wehttp/http.go` — sequence 07 first or
   co-own)

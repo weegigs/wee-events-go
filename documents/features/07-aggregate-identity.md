@@ -1,6 +1,6 @@
 # Feature 07 — Aggregate Identity: Canonical Form, Validated Construction, Edge Parsing
 
-- **Status:** Ready · **Size:** M · **Area:** core (`we/`) + all stores + both connectors
+- **Status:** Done · **Size:** M · **Area:** core (`we/`) + all stores + both connectors
 - **Coordinates with:** [Feature 09](09-error-surfacing.md) (shared `connectors/werestate/restate.go`, `connectors/wehttp/http.go`) · [Feature 08](08-explicit-event-encoding.md) (shared store files, disjoint functions)
 - **Prefix:** `IDENTITY`
 
@@ -146,10 +146,11 @@ backend can silently merge two identities.*
   transform a valid identity, and shall never constrain the identity contract:
   **stores adapt to the key space; the key space never adapts to a store.** Stores
   come and go with distinct storage and encodings — the contract cannot bake in any
-  transport's limitations, including unknown future ones. *(Incidentally, every
-  current backend carries the charset verbatim — `|` is an ordinary NATS token
-  character — but that is an observation, not the contract; the R3 scenario is what
-  binds every present and future store.)*
+  transport's limitations, including unknown future ones. *(Incidentally, most
+  backends carry the charset verbatim — `|` is an ordinary NATS token character —
+  while JetStream applies the R1 store-local encoding for `.`, the NATS token
+  separator. Either way that is an observation, not the contract; the R3 scenario
+  is what binds every present and future store.)*
 - **IDENTITY-S4.R3** (event-driven) — When aggregates with **generated** identities
   (full charset grammar, including composite `|` keys) and **generated** payload
   content (arbitrary unicode strings, including empty) are published and loaded,
