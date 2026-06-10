@@ -10,7 +10,7 @@
 // documents/adr/0004-restate-go-sdk.md).
 //
 // Addressing: the virtual-object key IS the canonical encoded form produced by
-// we.AggregateId.Encode() — `type:key` (IDENTITY-S3.R7, ADR-0008). The
+// we.AggregateId.Encode() — `type:key` (IDENTITY-S3.R7, ADR-0010). The
 // connector delegates all encoding and decoding to the canonical codec; no
 // local separator logic is maintained here.
 package werestate
@@ -229,7 +229,7 @@ func (s *service[T]) project(entity we.Entity[T]) (EntityResponse, error) {
 }
 
 // EncodeKey builds the virtual-object key for an aggregate id. The Restate
-// object key IS the canonical encoded form (IDENTITY-S3.R7, ADR-0008): one
+// object key IS the canonical encoded form (IDENTITY-S3.R7, ADR-0010): one
 // codec, one set of invariants, shared with every other identity edge.
 func EncodeKey(id we.AggregateId) (string, error) {
 	valid, err := we.MakeAggregateId(id.Type, id.Key)

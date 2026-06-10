@@ -23,8 +23,9 @@ changes, supersede its ADR and the references still resolve.
 | [0005](0005-rejection-error-modeling.md) | Model domain rejections via `error` + `errors.As` | Accepted |
 | [0006](0006-lint-enforcement.md) | Enforce resource-lifecycle principles via golangci-lint | Accepted |
 | [0007](0007-explicit-event-encoding.md) | Event encoding is an explicit constructor argument | Accepted |
-| [0008](0008-aggregate-identity.md) | Aggregate identity: canonical `type:key` form and validated construction | Accepted |
+| 0008 | Aggregate identity: canonical `type:key` form and validated construction | Superseded by 0010 — removed |
 | [0009](0009-property-based-testing-rapid.md) | Use `pgregory.net/rapid` for property-based conformance testing | Accepted |
+| [0010](0010-identity-grammar.md) | Aggregate identity grammar v2: kebab types, segmented keys, shared normative spec | Accepted |
 
 ## Conventions
 

@@ -7,7 +7,7 @@
 
 The store conformance suite proves backend behaviour with example-based scenarios:
 hand-picked identities, fixed payloads. Examples prove the examples. The identity
-contract (ADR-0008) defines a *space* — a charset grammar for types and keys, arbitrary
+contract (ADR-0010) defines a *space* — a charset grammar for types and keys, arbitrary
 unicode payload content behind the codec seam — and the owner's direction is that
 conformance must cover that space's edge cases generatively, not anecdotally: stores
 must adapt to the whole key space (including inputs nobody hand-picks, like `~~~~`,

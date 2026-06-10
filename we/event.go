@@ -38,12 +38,12 @@ type AggregateId struct {
 // identities: the encoded form is the reference format for documents that
 // point at aggregates — the string they store when they reference one
 // (IDENTITY-S2.R4). Its canonical form is `<type> ":" <key>` and its grammar
-// is frozen (see ADR-0008): loosening is permitted, tightening is not.
+// is frozen (documents/spec/aggregate-identity.md, ADR-0010): loosening is permitted, tightening is not.
 type EncodedAggregateId string
 
 // Encode renders the canonical string form of an aggregate identity:
 // `<type> ":" <key>`, byte-for-byte the wee-events.rs Display form
-// (IDENTITY-S2, ADR-0008). It is infallible for every identity accepted by
+// (IDENTITY-S2, ADR-0010). It is infallible for every identity accepted by
 // MakeAggregateId.
 func (id AggregateId) Encode() EncodedAggregateId {
 	return EncodedAggregateId(id.Type + ":" + id.Key)

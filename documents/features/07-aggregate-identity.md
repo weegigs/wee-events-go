@@ -28,7 +28,7 @@ unreleased).
 
 ## Decisions
 
-- [ADR-0008](../adr/0008-aggregate-identity.md) — canonical `type:key` form, identity
+- [ADR-0010](../adr/0010-identity-grammar.md) — canonical `type:key` form, identity
   invariants, edge parsing, and the durable-reference contract.
 - [ADR-0009](../adr/0009-property-based-testing-rapid.md) — property-based testing via
   `pgregory.net/rapid` for the codec properties and the generative conformance
@@ -93,7 +93,7 @@ produces for the same identity.*
   serialises an entity response, the `$id` field shall carry the canonical encoded form.
 - **IDENTITY-S2.R4** (ubiquitous) — The doc comment on `EncodedAggregateId` shall state
   the durable-reference contract: the encoded form is the reference format for documents
-  that point at aggregates, and its grammar is frozen (see ADR-0008).
+  that point at aggregates, and its grammar is frozen (see ADR-0010).
 
 ### IDENTITY-S3 — Parse identity at every edge
 
@@ -163,7 +163,7 @@ backend can silently merge two identities.*
 - **IDENTITY-S4.R4** (unwanted) — If the canonical-form change alters a backend's
   derived keys (it does — previously dot-joined), then previously written dot-keyed
   development data is orphaned, not migrated. *(Owner decision: correctness over
-  backward compatibility; the port is unreleased. Recorded in ADR-0008.)*
+  backward compatibility; the port is unreleased. Recorded in ADR-0010.)*
 
 ## Out of scope
 
@@ -173,7 +173,7 @@ backend can silently merge two identities.*
   unreserved charset, as in Rust's `AggregateType`.
 - Aligning `wee-events.rs`'s parser to the tightened charset (recorded as a roadmap
   follow-up; Go-accepted identities are already Rust-valid).
-- Unexported-field `AggregateId` with mandatory constructor (rejected in ADR-0008 —
+- Unexported-field `AggregateId` with mandatory constructor (rejected in ADR-0010 —
   ripples through every literal construction site for marginal gain over boundary
   parsing).
 
@@ -182,11 +182,11 @@ backend can silently merge two identities.*
 | Requirement | Test |
 |---|---|
 | IDENTITY-S1.R1–R6 | Unit: table-driven `MakeAggregateId` cases — valid (full charsets, incl. composite `kevin\|card\|boots`), empty type/key, colon/space/percent in type and key, `\|` in type (rejected — key-only), `"."`/`".."` parts; assert `*InvalidAggregateIdError` with exact `Reason` via `errors.As` |
-| IDENTITY-S1.R7, S1.R8 | Documentation review (ADR-0008 + roadmap follow-up recorded; composite convention stated, no segment parsing anywhere) |
+| IDENTITY-S1.R7, S1.R8 | Documentation review (ADR-0010 + roadmap follow-up recorded; composite convention stated, no segment parsing anywhere) |
 | IDENTITY-S2.R1, S2.R2 | Unit: `Encode` golden values; cross-checked against Rust `Display` fixtures (`counter:live-1`) |
 | IDENTITY-S2.R3 | `we/resource-encoder_test.go` asserts the canonical `$id` form (`"counter:a"`) in encoded responses — wehttp delegates to this pure encoder; werestate's integration test asserts `$id == "counter:live-1"` directly |
 | IDENTITY-S3.R1–R4 | Unit: decode error table (missing separator, empty parts, colon-bearing key → `invalid-key`); rapid property tests — grammar-generated round-trip + out-of-charset rejection (ADR-0009) |
 | IDENTITY-S3.R5, S3.R6 | wehttp test: request with colon-bearing type and space-bearing key segments → 400 `"invalid aggregate id"`, stub service never invoked |
 | IDENTITY-S3.R7 | Existing `EncodeKey`/`decodeKey` tests pass against the delegating implementation; the former colon-in-key round-trip flips to a rejection test (`invalid-key`) |
 | IDENTITY-S4.R1, S4.R3 | New property-based conformance scenario `IdentityRoundTripsThroughStorage` (rapid-generated identities + payloads) registered in `scenarios()`; green on all five backends (Docker for ds/jetstream/kurrent) |
-| IDENTITY-S4.R2 | The S4.R3 scenario is the binding check for every store, present and future — a store that rejects or mangles any valid identity fails it; ADR-0008 records the adaptation contract |
+| IDENTITY-S4.R2 | The S4.R3 scenario is the binding check for every store, present and future — a store that rejects or mangles any valid identity fails it; ADR-0010 records the adaptation contract |
