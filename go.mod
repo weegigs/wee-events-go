@@ -14,7 +14,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.8.44
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.57.8
 	github.com/aws/constructs-go/constructs/v10 v10.6.0
-	github.com/aws/smithy-go v1.27.0
 	github.com/fxamacker/cbor/v2 v2.9.2
 	github.com/google/wire v0.7.0
 	github.com/iancoleman/strcase v0.3.0
@@ -45,6 +44,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sns v1.39.21 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sqs v1.43.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.36.4 // indirect
+	github.com/aws/smithy-go v1.27.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
 	github.com/cdklabs/awscdk-asset-awscli-go/awscliv1/v2 v2.2.282 // indirect

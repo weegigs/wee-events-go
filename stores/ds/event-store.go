@@ -10,12 +10,10 @@ import (
 
 	"github.com/avast/retry-go/v4"
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/smithy-go"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -162,25 +160,25 @@ type Update struct {
 }
 
 func isRevisionConflict(err error) bool {
-	return err == we.RevisionConflict
+	return errors.Is(err, we.RevisionConflict)
 }
 
+// maybeRevisionConflict classifies a DynamoDB transaction cancellation caused
+// by the conditional check as we.RevisionConflict. errors.As searches the
+// whole chain, so SDK wrapping changes cannot silently unclassify a conflict
+// (SURFACE-S2.R1); a nil reason Code is skipped, never dereferenced
+// (SURFACE-S2.R2) — non-failing items carry Code "None" and fall through the
+// comparison.
 func maybeRevisionConflict(err error) error {
-	var oe *smithy.OperationError
-	if errors.As(err, &oe) {
-		var re *http.ResponseError
-		if errors.As(oe.Unwrap(), &re) {
-			var tc *types.TransactionCanceledException
-			if errors.As(re.Unwrap(), &tc) {
-				for _, reason := range tc.CancellationReasons {
-					if *reason.Code == "ConditionalCheckFailed" {
-						return we.RevisionConflict
-					}
-				}
-			}
+	var tc *types.TransactionCanceledException
+	if !errors.As(err, &tc) {
+		return err
+	}
+	for _, reason := range tc.CancellationReasons {
+		if reason.Code != nil && *reason.Code == "ConditionalCheckFailed" {
+			return we.RevisionConflict
 		}
 	}
-
 	return err
 }
 

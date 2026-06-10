@@ -2,10 +2,13 @@ package ds
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -128,6 +131,38 @@ func TestDynamoDBStore(t *testing.T) {
 			return
 		}
 		assert.Equal(t, we.InitialRevision, loaded.Revision)
+	})
+}
+
+// SURFACE-S2 — classification survives extra wrapping, skips nil reason
+// codes, and never relabels a non-conflict.
+func TestMaybeRevisionConflict(t *testing.T) {
+	ccf := "ConditionalCheckFailed"
+	tc := &types.TransactionCanceledException{
+		CancellationReasons: []types.CancellationReason{
+			{Code: nil}, // DynamoDB uses nil/None for non-blocking items
+			{Code: &ccf},
+		},
+	}
+
+	t.Run("deeply wrapped exception classifies", func(t *testing.T) {
+		err := fmt.Errorf("operation: %w", fmt.Errorf("transport: %w", tc))
+		assert.ErrorIs(t, maybeRevisionConflict(err), we.RevisionConflict)
+	})
+
+	t.Run("nil reason codes never panic", func(t *testing.T) {
+		onlyNil := &types.TransactionCanceledException{
+			CancellationReasons: []types.CancellationReason{{Code: nil}},
+		}
+		err := errors.New("wrapper")
+		var result error
+		assert.NotPanics(t, func() { result = maybeRevisionConflict(fmt.Errorf("%w", onlyNil)) })
+		assert.NotErrorIs(t, result, we.RevisionConflict)
+		assert.Equal(t, err, maybeRevisionConflict(err))
+	})
+
+	t.Run("wrapped sentinel still detected as conflict", func(t *testing.T) {
+		assert.True(t, isRevisionConflict(fmt.Errorf("retry: %w", we.RevisionConflict)))
 	})
 }
 
