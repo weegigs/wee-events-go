@@ -1,68 +1,106 @@
 # Aggregate Identity Charset — Shared Normative Specification (Design)
 
-**Date:** 2026-06-10 · **Status:** Approved by owner · **Size:** S–M
+**Date:** 2026-06-10 · **Status:** Approved by owner (revised — grammar v2) · **Size:** M
 
 ## Decision
 
-The aggregate identity grammar moves from four drift-prone locations (IDENTITY-S1
-requirements, ADR-0008 prose, `we/aggregate-id.go` constants, `we/identity-gen.go`
-regexes) into one canonical, machine-checkable package in this repository:
+The aggregate identity grammar is revised (a pre-release tightening — the last
+safe moment under the frozen-grammar rule) and moves into one canonical,
+machine-checkable package in this repository:
+
+```abnf
+identity = type ":" key
+type     = word *( "-" token )              ; 1–64 octets
+word     = lower *( lower / digit )         ; first token starts with a letter
+token    = 1*( lower / digit )
+key      = segment *( "|" segment )         ; 1–512 octets total
+segment  = 1*( ALPHA / DIGIT / "-" / "." / "_" / "@" )
+           ; no segment is "." or ".."
+```
+
+The two separators are treated identically: `-` joins non-empty tokens inside a
+type exactly as `|` joins non-empty segments inside a key — no leading,
+trailing, or doubled separators in either part, enforced by grammar shape.
+
+Deliverables:
 
 1. `documents/spec/aggregate-identity.md` — normative spec (prose rules + ABNF).
 2. `documents/spec/aggregate-identity.vectors.json` — conformance vectors, the
    cross-implementation contract.
-3. `we/identity-vectors_test.go` — Go consumes the vectors directly.
-4. `documents/writing-documents.md` — the document-writing standard adopted for
-   ecosystem documents (captured as part of this work; see §6).
+3. `documents/adr/0010-identity-grammar.md` — supersedes ADR-0008 (the charset
+   is ADR-0008's decision; revising it requires supersession, not annotation).
+4. Go implementation update: `we/aggregate-id.go`, `we/identity-gen.go`, and
+   the identity tests enforce the revised grammar; `we/identity-vectors_test.go`
+   consumes the vectors.
+5. `documents/writing-documents.md` — the document-writing standard adopted for
+   ecosystem documents (see §6).
 
-All three implementations are bound: Go (conformant today), Rust `wee-events.rs`
-(pending — roadmap follow-up "align wee-events.rs to the tightened identity
-charset"), TypeScript `wee-events` (pending — still emits the legacy `type.key`
-dot form). Rust and TypeScript reconcile to this spec; the spec never adapts to
-them. No Go validation behaviour changes — the implementation already is the
-grammar; this work gives it a canonical home.
+All three implementations are bound: Go (brought to the revised grammar in this
+work), Rust `wee-events.rs` (pending — roadmap item D), TypeScript `wee-events`
+(pending — still emits the legacy `type.key` dot form). Rust and TypeScript
+reconcile to this spec; the spec never adapts to them.
 
 ## Owner-settled questions
 
-- **Binding scope:** all three implementations (Go, Rust, TypeScript) share one
-  identifier space and reconcile to the spec.
+- **Binding scope:** all three implementations share one identifier space.
 - **Home:** this repository is the current home for ecosystem-wide documents.
-- **Format:** prose + ABNF + JSON conformance vectors, edited to the
-  "Do Not Ship the AI Draft" standard (rules only; rationale stays in ADR-0008).
+- **Format:** prose + ABNF + JSON conformance vectors; rules in the spec,
+  rationale in the ADR, cases in the vectors.
+- **Internationalisation:** keys stay ASCII. Unicode normalization (NFC vs NFD)
+  would make visually identical keys address different aggregates — a silent
+  split, mirror image of the dot-form silent merge. Deferred with a documented
+  loosening path: non-ASCII letters/digits, NFC mandated, unnormalised input
+  rejected (never silently normalised). Natural-language data belongs in
+  payloads, which are full UTF-8 already.
+- **Grammar revision (v2):** type tightened to lowercase kebab (`[a-z][a-z0-9-]*`)
+  — types are code-authored schema names; case-confusable types are the same
+  hazard family as the dot merge. `~` dropped from both parts (obscure to read,
+  present only via RFC 3986 unreserved). `@` added to key segments (emails are
+  common natural keys; `@` is legal raw in URL path segments per RFC 3986
+  `pchar`). `|` formalised as the composite separator: interior-only, segments
+  non-empty — keys remain semantically opaque (no implementation interprets
+  segment content or count), but are syntactically well-formed by grammar.
+- **Length caps:** type ≤ 64 octets, key ≤ 512. Worst-case canonical form is
+  577 bytes (inside DynamoDB's 1,024-byte sort-key limit); worst-case
+  URL-encoded form ≈ 1,100 characters (inside the ~2,000-character interop
+  bound). The caps keep the forever-frozen grammar cheap for stores that do
+  not exist yet.
+- **Rejected expansions:** `+` (decoders disagree on space semantics), other
+  sub-delims (read as prose or pattern syntax), colons in keys (re-opens the
+  ambiguity the single-colon form eliminates; `run|01ABC` expresses the same
+  composite within the grammar).
 
 ## 1. The spec document
 
 `documents/spec/aggregate-identity.md` states rules only; every rationale cites
-[ADR-0008](../../../documents/adr/0008-aggregate-identity.md). Content, in
-cut-from-the-bottom order:
+ADR-0010. Content, in cut-from-the-bottom order:
 
-- **Canonical form:** `<type> ":" <key>`; parse at the first colon. Under the
-  charsets below the canonical form contains exactly one colon.
-- **Charsets:** type = RFC 3986 unreserved (`A-Z a-z 0-9 - . _ ~`); key =
-  unreserved plus `|`.
-- **Part rules:** both parts non-empty; neither may be `.` or `..`; pure ASCII;
-  **no length limit** (the Go validator enforces none; the spec must not invent
-  constraints the implementation does not enforce).
-- **Key opacity:** `|` is the documented composite-key segment convention
-  (`kevin|card|boots`); no implementation parses key segments.
+- **Canonical form:** `<type> ":" <key>`; parse at the first colon; the
+  canonical form contains exactly one colon.
+- **Grammar:** the ABNF above, plus the per-segment `.`/`..` exclusion in
+  prose (a key with no pipes is a single segment, so this subsumes the old
+  whole-part rule).
+- **Case sensitivity:** identities are byte-wise case-sensitive; the type
+  grammar is lowercase-only, key segments preserve case (ULIDs are uppercase).
+- **Key opacity:** segments are non-empty by grammar; no implementation parses
+  or interprets segment content or count.
 - **Closed rejection-reason set:** `empty-type`, `empty-key`, `invalid-type`,
-  `invalid-key`, `missing-separator`. Implementations map native error types
-  onto these identifiers.
+  `invalid-key`, `missing-separator`. Length violations and malformed segments
+  classify as `invalid-type`/`invalid-key`; messages carry detail, callers
+  classify on the constant.
 - **Frozen-grammar rule:** loosening is permitted, tightening is not; persisted
-  references must decode forever. Changes bump the vector-file version.
+  references must decode forever. The freeze begins at spec v1 (this revision
+  lands before it). Changes bump the vector-file version.
 - **Stores-adapt rule:** stores carry the canonical form verbatim where the
   transport allows, otherwise apply a deterministic, lossless, store-local
-  encoding (e.g. JetStream `.` → `%2E`). A store never rejects, truncates, or
-  constrains a valid identity.
+  encoding (e.g. JetStream `.` → `%2E` for key dots). A store never rejects,
+  truncates, or constrains a valid identity.
 - **URL carriage note:** in strict URL contexts only `|` percent-encodes
   (`%7C`); HTTP edges decode path parameters before parsing.
 - **Conformance:** what an implementation must assert against the vector file
   (every vector, plus byte-for-byte re-encode round-trip for valid parse
-  vectors), and an implementation-status table: Go conformant; Rust pending;
-  TypeScript pending migration from the dot form.
-
-The ABNF covers the grammar; the `.`/`..` exclusion stays in prose, where it is
-clearer than ABNF contortions.
+  vectors), and an implementation-status table: Go conformant; Rust pending
+  (item D); TypeScript pending migration from the dot form.
 
 ## 2. Vector file schema
 
@@ -75,12 +113,12 @@ Two groups, matching the two validation boundaries every implementation exposes
   "version": 1,
   "construct": [
     {"type": "counter", "key": "live-1", "valid": true},
-    {"type": "counter", "key": "a:b", "valid": false, "reason": "invalid-key"}
+    {"type": "Counter", "key": "live-1", "valid": false, "reason": "invalid-type"}
   ],
   "parse": [
-    {"input": "counter:live-1", "valid": true, "type": "counter", "key": "live-1"},
+    {"input": "gift-card:kevin|card|boots", "valid": true, "type": "gift-card", "key": "kevin|card|boots"},
     {"input": "counter", "valid": false, "reason": "missing-separator"},
-    {"input": "kevin|card:boots", "valid": false, "reason": "invalid-type"}
+    {"input": "counter:a||b", "valid": false, "reason": "invalid-key"}
   ]
 }
 ```
@@ -89,16 +127,20 @@ Coverage requirements:
 
 - Every rejection reason at both boundaries where applicable
   (`missing-separator` is parse-only).
-- Charset edges: `~` in both parts; `|` valid in key, invalid in type; `.` and
-  `..` rejected as whole parts but valid inside parts; `%`, `:`, `/`,
-  whitespace, and non-ASCII rejected; empty string and lone-`:` forms.
-- The documented composite-key example (`card:kevin|card|boots` valid).
+- Type edges: uppercase rejected; leading digit rejected; leading, trailing,
+  and doubled `-` rejected; digit-leading interior token valid (`base-64`);
+  `.`, `_`, `~`, `|` rejected; 64-octet boundary (64 valid, 65 invalid).
+- Key edges: `@` and `.` valid in segments; `~`, `%`, `:`, `/`, whitespace,
+  non-ASCII rejected; leading/trailing/doubled `|` rejected; segment equal to
+  `.` or `..` rejected (and valid when embedded, e.g. `v1.2`); 512-octet
+  boundary; email-form key (`user:kevin@example.com`); ULID-form key
+  (uppercase preserved).
 - Valid parse vectors round-trip: re-encoding the parsed parts reproduces the
   input bytes exactly.
 
-Vectors pin boundary cases and cross-language agreement; the existing rapid
-generators (`we/identity-gen.go`, ADR-0009) remain Go's generative layer above
-them.
+Vectors pin boundary cases and cross-language agreement; the rapid generators
+(`we/identity-gen.go`, ADR-0009), regenerated for the revised grammar, remain
+Go's generative layer above them.
 
 ## 3. Versioning and vendoring
 
@@ -107,27 +149,41 @@ verbatim copy of the vector file into their test trees; each consumer's
 conformance test asserts `version == <expected>`, so a stale copy fails visibly
 when the master moves. Updating a consumer = copy the new file, bump the
 expectation, fix what the new vectors catch. No checksums, submodules, or
-network fetches — the grammar is frozen loosen-only, so version bumps are rare
-and deliberate.
+network fetches — the grammar freezes loosen-only at v1, so version bumps are
+rare and deliberate.
 
-## 4. Go conformance test
+## 4. Go implementation changes
 
-`we/identity-vectors_test.go` loads `../documents/spec/aggregate-identity.vectors.json`
-and asserts, for every vector: `MakeAggregateId` outcomes (construct group),
-`EncodedAggregateId.Decode` outcomes (parse group), the specific
-`InvalidAggregateIdError.Reason` against the vector's `reason`, and the
-round-trip rule. Test failures name the offending vector input.
+- `we/aggregate-id.go`: `validIdentityPart` splits into type and key rules
+  (type: lowercase kebab, letter-first, ≤ 64; key: segment grammar, ≤ 512,
+  per-segment `.`/`..` exclusion). The reason set is unchanged.
+- `we/identity-gen.go`: generators regenerated for the revised grammar
+  (type `[a-z][a-z0-9-]*` letter-first; key as pipe-joined segments).
+- `we/identity-vectors_test.go` (new): loads
+  `../documents/spec/aggregate-identity.vectors.json` and asserts, for every
+  vector, `MakeAggregateId` outcomes (construct group),
+  `EncodedAggregateId.Decode` outcomes (parse group), the specific
+  `InvalidAggregateIdError.Reason`, and the round-trip rule. Failures name the
+  offending vector input.
+- Existing identity tests and any literals using now-invalid spellings
+  (uppercase types, `~`) are updated to the revised grammar.
+- Store conformance suites re-run unchanged — the stores-adapt contract is
+  unaffected; the JetStream `%2E` encoding now applies to key dots only.
 
-## 5. Cross-reference sweep (drift retirement)
+Previously persisted development identities outside the revised grammar are
+orphaned, not migrated (owner precedent, ADR-0008/IDENTITY-S4.R4: correctness
+over backward compatibility; the port is unreleased).
 
-The four current grammar locations stop being normative and point at the spec:
+## 5. Documentation sweep (drift retirement)
 
 | Location | Change |
 |---|---|
-| `documents/adr/0008-aggregate-identity.md` | "Relates to" line names the spec as the normative grammar; decision text untouched (ADR stays the *why*, spec is the *what*) |
-| `documents/features/07-aggregate-identity.md` | IDENTITY-S1.R4/R7/R8 gain a cross-reference to the spec |
-| `we/aggregate-id.go` | Charset-constant comments cite the spec instead of restating the grammar |
-| `we/identity-gen.go` | Generator comments cite the spec |
+| `documents/adr/0010-identity-grammar.md` | New ADR: restates what survives from ADR-0008 (canonical form, one parser, stores-adapt, frozen-grammar, durable-reference contract), records the v2 grammar and its rationale, names the spec as the normative grammar |
+| `documents/adr/0008-aggregate-identity.md` | Deleted; tombstone row in `documents/adr/README.md` (house supersession rule) |
+| References to ADR-0008 | Repointed to ADR-0010 (roadmap, feature 07, code comments) |
+| `documents/features/07-aggregate-identity.md` | IDENTITY-S1.R4/R7/R8 updated to reference the spec instead of restating the old charset |
+| `we/aggregate-id.go`, `we/identity-gen.go` | Comments cite the spec instead of restating the grammar |
+| `documents/conventions.md` | One-line pointer to the writing standard |
 
 The roadmap follow-up for Rust alignment (item D) is updated to reference the
 spec and its vendored vectors as the implementation contract.
@@ -141,23 +197,21 @@ regenerable-content filter, voice and specificity rules, length budgets, and
 the pre-publish checklist. Two house adaptations: objective third-person voice
 (per CLAUDE.md, overriding the guide's first-person examples), and an explicit
 carve-out for normative reference documents, which optimise for precision and
-lookup rather than narrative brevity. `documents/conventions.md` gains a
-one-line pointer.
+lookup rather than narrative brevity.
 
 ## Out of scope
 
 - Rust and TypeScript code changes (roadmap item D and the future TypeScript
   migration consume this spec; they do not ship with it).
-- Any change to Go validation behaviour.
+- Migration of previously persisted development data (orphaned, per precedent).
 - Promotion to a separate spec repository — deferred until a second
   cross-implementation contract exists; the vendoring mechanism is unchanged by
   any future move.
 
 ## Testing
 
-- The Go vector test is the acceptance gate for the spec/vector content itself:
-  if a vector disagrees with `we/aggregate-id.go`, the vector (or the spec) is
-  wrong — the implementation is the current source of truth being formalised.
-- Existing identity tests (unit, rapid properties, store conformance) must stay
-  green untouched — this work adds tests and documents only.
-- Lint and full-suite gates per house rules.
+- The Go vector test is the acceptance gate for spec/vector agreement; the
+  revised validator is the reference implementation of the grammar.
+- TDD per house rules: vectors and failing tests precede the validator change.
+- Full gates: lint 0; full uncached suite, 0 skips (Docker for store suites);
+  restate integration.
