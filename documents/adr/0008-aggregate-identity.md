@@ -27,10 +27,15 @@ and previously written dot-keyed development data does not constrain the design.
 
 1. **Canonical encoded form:** `<type> ":" <key>`, byte-for-byte equal to Rust's
    `Display`. The first colon is the separator; keys may contain colons.
-2. **Identity invariants** (exactly Rust's rules): `Type` non-empty and colon-free;
-   `Key` non-empty. Enforced by the single validating constructor
-   `MakeAggregateId(type, key) (AggregateId, error)` returning a typed
-   `*InvalidAggregateIdError` with a closed `Reason` set.
+2. **Identity invariants:** `Type` and `Key` are non-empty, restricted to the RFC 3986
+   **unreserved** characters (`A-Z a-z 0-9 - . _ ~`), and neither may equal `"."` or
+   `".."` (URL dot-segments normalise away). Enforced by the single validating
+   constructor `MakeAggregateId(type, key) (AggregateId, error)` returning a typed
+   `*InvalidAggregateIdError` with a closed `Reason` set. The charset contains no
+   `":"`, so the canonical form holds exactly one colon and parsing is unambiguous;
+   it contains no space/`*`/`>`, so identities are representable **verbatim** — no
+   percent-encoding, no escaping — in URL path segments, NATS subjects, Kurrent
+   stream ids, and DynamoDB keys.
 3. **One parser:** `EncodedAggregateId.Decode()` is the canonical boundary parser
    (first-separator `Cut`, the same typed errors). Every edge that receives identity as
    a string parses through it or through `MakeAggregateId` — the HTTP path parameters,
@@ -53,8 +58,14 @@ and previously written dot-keyed development data does not constrain the design.
   `counter:live-1`), matching what the Rust connector serves. Backend storage keys
   change shape the same way; previously written dot-keyed development data is orphaned,
   not migrated (owner decision).
-- The Go and Rust implementations accept and reject identical identity strings — parity
-  is testable with shared fixtures.
+- The Go invariants are deliberately stricter than Rust's parser (whose `split_once`
+  accepts colon-bearing keys and any charset): every Go-accepted identity is
+  Rust-valid, the reverse is not guaranteed. Aligning `wee-events.rs` to the tightened
+  charset is a recorded roadmap follow-up; until then, a Rust-written identity outside
+  the charset fails Go's parser loudly — an error, never a transformation.
+- Transport-representation hazards are eliminated by construction rather than guarded
+  at runtime: no valid identity needs encoding, splitting, or substitution anywhere it
+  travels.
 - The struct JSON form (`{"type":…,"key":…}`) inside stored event envelopes is
   untouched; this ADR governs the *string* spelling only.
 - The Restate `type:key` object key and the canonical form become the same thing — one
@@ -74,6 +85,9 @@ and previously written dot-keyed development data does not constrain the design.
 - **Per-backend identity spellings, frozen for compatibility.** Rejected: complexity
   without a correctness benefit once compatibility is off the table; one canonical
   derivation is strictly simpler to reason about and test.
-- **Constraining `Type` to a charset (kebab-case enforcement).** Deferred: loosening a
-  frozen contract is safe, tightening is not — so the contract ships with the minimal
-  separator rule, and kebab-case stays a documented convention as in Rust.
+- **Minimal separator-only invariants (Rust's exact rules).** Initially proposed, then
+  tightened by the owner before the contract froze — the only safe moment to tighten.
+  Restricting both parts to URL-unreserved characters costs nothing now (the port is
+  unreleased) and eliminates the entire transport-representation hazard class:
+  percent-encoding at edges, NATS-illegal subject characters, and dot-segment path
+  traversal. Kebab-case for `Type` stays a documented convention within the charset.

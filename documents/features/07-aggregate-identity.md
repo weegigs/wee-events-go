@@ -47,15 +47,23 @@ every derived key is injective.* (Parse, don't validate — principle 3.)
   `AggregateId`.
 - **IDENTITY-S1.R3** (unwanted) — If `key` is empty, then `MakeAggregateId` shall return
   a `*we.InvalidAggregateIdError` with `Reason: "empty-key"` and a zero `AggregateId`.
-- **IDENTITY-S1.R4** (unwanted) — If `aggregateType` contains the separator `":"`, then
-  `MakeAggregateId` shall return a `*we.InvalidAggregateIdError` with
-  `Reason: "type-contains-separator"` and a zero `AggregateId`. *(A colon-bearing type
-  would make the canonical form ambiguous. The key may contain colons — the first
-  separator is authoritative.)*
-- **IDENTITY-S1.R5** (ubiquitous) — `InvalidAggregateIdError` shall carry the offending
+- **IDENTITY-S1.R4** (ubiquitous) — Both parts shall be restricted to the RFC 3986
+  **unreserved** characters — `A-Z a-z 0-9 - . _ ~` — and shall not equal `"."` or
+  `".."` (URL dot-segments normalise away). Identities are therefore representable
+  **verbatim** — without percent-encoding — in URL path segments, NATS subjects,
+  Kurrent stream ids, and DynamoDB keys, and the canonical form contains exactly one
+  `":"` (the charset has none), making `Decode` unambiguous by construction.
+- **IDENTITY-S1.R5** (unwanted) — If `aggregateType` violates R4, then `MakeAggregateId`
+  shall return `Reason: "invalid-type"`; if `key` violates R4, `Reason: "invalid-key"`
+  — each with a zero `AggregateId`.
+- **IDENTITY-S1.R6** (ubiquitous) — `InvalidAggregateIdError` shall carry the offending
   `Type`, `Key`, and a `Reason` drawn from exactly the set `{"empty-type", "empty-key",
-  "type-contains-separator", "missing-separator"}` so callers can classify without
+  "invalid-type", "invalid-key", "missing-separator"}` so callers can classify without
   string-matching messages.
+- **IDENTITY-S1.R7** (ubiquitous) — The Go invariants are deliberately **stricter than
+  Rust's parser** (whose `split_once` accepts colon-bearing keys): every Go-accepted
+  identity is Rust-valid; the reverse is not guaranteed. Aligning `wee-events.rs` to
+  the tightened charset is a recorded follow-up (roadmap).
 
 ### IDENTITY-S2 — Render the canonical encoded form
 
@@ -83,7 +91,8 @@ stores as if it were real.*
 - **IDENTITY-S3.R1** (ubiquitous) — `EncodedAggregateId.Decode() (AggregateId, error)`
   shall parse at the **first** `":"` (`strings.Cut` semantics, mirroring Rust's
   `split_once`), build the result through the IDENTITY-S1 rules, and return the value
-  form (signature change from today's `(*AggregateId, error)`).
+  form (signature change from today's `(*AggregateId, error)`). A key segment
+  containing a further `":"` therefore fails charset validation (`"invalid-key"`).
 - **IDENTITY-S3.R2** (unwanted) — If the input contains no `":"`, then `Decode` shall
   return a `*we.InvalidAggregateIdError` with `Reason: "missing-separator"`.
 - **IDENTITY-S3.R3** (unwanted) — If the type or key segment is empty, then `Decode`
@@ -91,7 +100,7 @@ stores as if it were real.*
   `"empty-key"`), exactly as Rust's `AggregateIdParseError` distinguishes the cases.
 - **IDENTITY-S3.R4** (ubiquitous) — `Decode(Encode(id)) == id` shall hold for every
   identity accepted by `MakeAggregateId`, enforced by a round-trip property test that
-  includes keys containing `":"` and `"."`.
+  exercises the full unreserved set (`.`, `-`, `_`, `~`, mixed case, digits).
 - **IDENTITY-S3.R5** (event-driven) — When the HTTP connector receives `{type}` and
   `{key}` path parameters, it shall build the identity via `MakeAggregateId` for both
   `getResource` and `executeCommand`.
@@ -114,14 +123,16 @@ backend can silently merge two identities.*
 - **IDENTITY-S4.R1** (ubiquitous) — The DynamoDB partition key, the JetStream subject
   (`prefix + Encode()`), and the Kurrent stream id shall derive from
   `AggregateId.Encode()`; no backend shall maintain its own identity spelling.
-- **IDENTITY-S4.R2** (unwanted) — If a backend's transport cannot represent a valid
-  identity (for example a NATS-illegal character in a subject token), then the store
-  shall surface the transport's rejection as an error from `Publish`/`Load` — it shall
-  never transform, truncate, or substitute the identity.
-- **IDENTITY-S4.R3** (event-driven) — When an aggregate whose key contains `":"` and
-  `"."` is published and loaded, every backend shall return events whose
-  `AggregateId` equals the published identity. *(New conformance-suite scenario; runs
-  against memory, ds, jetstream, kurrent, and sqlite via `Run(t)` auto-registration.)*
+- **IDENTITY-S4.R2** (ubiquitous) — Every valid identity shall be representable
+  verbatim by every backend's transport. *(Satisfied by construction: the IDENTITY-S1.R4
+  charset excludes every character NATS forbids in subject tokens — space, `*`, `>` —
+  and everything URL paths require encoding for. No runtime transport-rejection guard
+  is needed; the round-trip scenario in R3 is the proof.)*
+- **IDENTITY-S4.R3** (event-driven) — When an aggregate whose key exercises the full
+  unreserved set (`.`, `-`, `_`, `~`, mixed case) is published and loaded, every
+  backend shall return events whose `AggregateId` equals the published identity. *(New
+  conformance-suite scenario; runs against memory, ds, jetstream, kurrent, and sqlite
+  via `Run(t)` auto-registration.)*
 - **IDENTITY-S4.R4** (unwanted) — If the canonical-form change alters a backend's
   derived keys (it does — previously dot-joined), then previously written dot-keyed
   development data is orphaned, not migrated. *(Owner decision: correctness over
@@ -131,8 +142,10 @@ backend can silently merge two identities.*
 
 - Projection/document machinery itself (roadmap phase) — this feature only freezes the
   reference format that phase will consume.
-- Constraining `Type` beyond the separator rule (no charset/kebab-case enforcement);
-  kebab-case stays a documented convention, as in Rust's `AggregateType`.
+- Enforcing kebab-case on `Type` — it stays a documented convention within the
+  unreserved charset, as in Rust's `AggregateType`.
+- Aligning `wee-events.rs`'s parser to the tightened charset (recorded as a roadmap
+  follow-up; Go-accepted identities are already Rust-valid).
 - Unexported-field `AggregateId` with mandatory constructor (rejected in ADR-0008 —
   ripples through every literal construction site for marginal gain over boundary
   parsing).
@@ -141,11 +154,12 @@ backend can silently merge two identities.*
 
 | Requirement | Test |
 |---|---|
-| IDENTITY-S1.R1–R5 | Unit: table-driven `MakeAggregateId` cases — valid, empty type, empty key, colon-in-type; assert `*InvalidAggregateIdError` with exact `Reason` via `errors.As` |
-| IDENTITY-S2.R1, S2.R2 | Unit: `Encode` golden values incl. key containing `":"`; cross-checked against Rust `Display` fixtures (`counter:live-1`) |
+| IDENTITY-S1.R1–R6 | Unit: table-driven `MakeAggregateId` cases — valid (full unreserved set), empty type/key, colon/space/percent in type and key, `"."`/`".."` parts; assert `*InvalidAggregateIdError` with exact `Reason` via `errors.As` |
+| IDENTITY-S1.R7 | Documentation review (ADR-0008 + roadmap follow-up recorded) |
+| IDENTITY-S2.R1, S2.R2 | Unit: `Encode` golden values; cross-checked against Rust `Display` fixtures (`counter:live-1`) |
 | IDENTITY-S2.R3 | wehttp + werestate response tests assert `$id == "counter:live-1"` form |
-| IDENTITY-S3.R1–R4 | Unit: decode error table mirroring Rust `AggregateIdParseError`; round-trip property test over generated ids with separator-bearing keys |
-| IDENTITY-S3.R5, S3.R6 | wehttp test: request with empty/colon-bearing type segment → 400 `"invalid aggregate id"`, stub service never invoked |
-| IDENTITY-S3.R7 | Existing `EncodeKey`/`decodeKey` tests pass against the delegating implementation; colon-in-key round-trip retained |
+| IDENTITY-S3.R1–R4 | Unit: decode error table (missing separator, empty parts, colon-bearing key → `invalid-key`); round-trip property test over the unreserved set |
+| IDENTITY-S3.R5, S3.R6 | wehttp test: request with colon-bearing type and space-bearing key segments → 400 `"invalid aggregate id"`, stub service never invoked |
+| IDENTITY-S3.R7 | Existing `EncodeKey`/`decodeKey` tests pass against the delegating implementation; the former colon-in-key round-trip flips to a rejection test (`invalid-key`) |
 | IDENTITY-S4.R1, S4.R3 | New conformance scenario `IdentityRoundTripsThroughStorage` registered in `scenarios()`; green on all five backends (Docker for ds/jetstream/kurrent) |
-| IDENTITY-S4.R2 | jetstream: publish with a NATS-rejectable identity asserts a surfaced error, not a mangled subject |
+| IDENTITY-S4.R2 | Charset analysis in ADR-0008 + the S4.R3 scenario (no runtime guard exists to test — representability holds by construction) |

@@ -99,6 +99,12 @@ Surfaced by the 01–05 work and its reviews; recorded for later, not yet schedu
   `server` entrypoint through a hand-rolled testcontainers harness. When the SDK adopts the
   v0.42+ `network.Port` API, replace the bespoke harness with the SDK's `testing` helper. This
   is the "known compatibility problem" exception noted in [ADR-0004](adr/0004-restate-go-sdk.md).
+- **Align `wee-events.rs` to the tightened identity charset.** Feature 07 restricts
+  `AggregateId` parts to RFC 3986 unreserved characters ([ADR-0008](adr/0008-aggregate-identity.md));
+  Rust's `FromStr` still accepts colon-bearing keys and any charset. Go is a strict
+  subset, so Go-written identities are Rust-valid, but a Rust-written identity outside
+  the charset fails Go's parser (loudly). Upstream the same validation to
+  `crates/wee-events/src/id.rs`.
 
 ## Decisions
 
