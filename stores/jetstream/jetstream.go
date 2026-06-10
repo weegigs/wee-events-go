@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -100,6 +101,15 @@ func (es *EventStore) Publish(ctx context.Context, aggregateId we.AggregateId, o
 		// zero events the nil encoder is never used and nothing can be
 		// mis-recorded, so an empty publish is a state, not an error.
 		return nil
+	}
+
+	// SURFACE-S4.R1 — the per-changeset event index is a uint16, so a changeset
+	// beyond 65536 events would silently wrap the index and mint duplicate
+	// revisions. Like the empty-publish check above, this is a structural
+	// verdict on the changeset's shape: it needs no encoder, so it runs before
+	// encoder resolution rather than after it.
+	if len(events) > math.MaxUint16+1 {
+		return fmt.Errorf("jetstream: changeset exceeds maximum batch size %d", math.MaxUint16+1)
 	}
 
 	// Resolve the publish encoder before encoding: an explicit per-publish
@@ -253,6 +263,13 @@ func (es *EventStore) decodeChangeSet(data []byte, metadata *jetstream.MsgMetada
 	err := es.marshaller.Unmarshal(data, cs)
 	if err != nil {
 		return nil, err
+	}
+
+	// SURFACE-S4.R2 — a stored changeset written by a foreign writer (one
+	// without the publish-side guard) could exceed the uint16 index space;
+	// decoding it would wrap the index and yield duplicate revisions.
+	if len(cs.Events) > math.MaxUint16+1 {
+		return nil, fmt.Errorf("jetstream: stored changeset exceeds maximum batch size %d", math.MaxUint16+1)
 	}
 
 	var result []we.RecordedEvent

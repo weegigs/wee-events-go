@@ -2,9 +2,10 @@ package jetstream_test
 
 import (
 	"context"
+	"testing"
+
 	"github.com/weegigs/wee-events-go/stores/jetstream"
 	"github.com/weegigs/wee-events-go/we"
-	"testing"
 )
 
 func TestEventStore(t *testing.T) {
