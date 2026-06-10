@@ -132,11 +132,7 @@ func (service *httpService[T]) getResource() http.HandlerFunc {
 			return
 		}
 
-		err = service.encoder.Encode(w, r, entity)
-		if err != nil {
-			http.Error(w, "failed to encode resource", http.StatusInternalServerError)
-			return
-		}
+		service.writeResource(w, entity)
 	}
 }
 
@@ -184,11 +180,25 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 			return
 		}
 
-		err = service.encoder.Encode(w, r, entity)
-		if err != nil {
-			http.Error(w, "failed to encode resource", http.StatusInternalServerError)
-			return
-		}
+		service.writeResource(w, entity)
+	}
+}
 
+// writeResource marshals the entity and commits the response. The status is
+// written exactly once, and only after marshalling succeeds: an encode
+// failure maps to a static 500 before anything is committed (SURFACE-S4.R3).
+func (service *httpService[T]) writeResource(w http.ResponseWriter, entity we.Entity[T]) {
+	body, err := service.encoder.Marshal(entity)
+	if err != nil {
+		service.log.Info().Err(err).Msg("failed to encode resource")
+		http.Error(w, "failed to encode resource", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(body); err != nil {
+		// The status is committed; a write failure is a dead client, not a
+		// recoverable response. Log and abandon (SURFACE-S4.R4).
+		service.log.Info().Err(err).Msg("failed to write resource body")
 	}
 }

@@ -209,6 +209,46 @@ func TestInvalidAggregateIdMapsTo400(t *testing.T) {
 	}
 }
 
+// SURFACE-S4.R4 — a body-write failure after the 200 is committed is logged
+// and abandoned; the handler never writes a second status.
+type failingWriter struct {
+	header      http.Header
+	statusCalls []int
+}
+
+func (w *failingWriter) Header() http.Header  { return w.header }
+func (w *failingWriter) WriteHeader(code int) { w.statusCalls = append(w.statusCalls, code) }
+func (w *failingWriter) Write([]byte) (int, error) {
+	return 0, errors.New("client disconnected")
+}
+
+func TestWriteFailureNeverWritesSecondStatus(t *testing.T) {
+	handler := NewHandler[struct{}](loadableService{})
+	w := &failingWriter{header: http.Header{}}
+	req := httptest.NewRequest(http.MethodGet, "/counter/a", nil)
+
+	handler.ServeHTTP(w, req)
+
+	assert.Equal(t, []int{http.StatusOK}, w.statusCalls, "exactly one status write, the committed 200")
+}
+
+// loadableService returns a valid initialized entity.
+type loadableService struct{}
+
+func (s loadableService) Load(context.Context, we.AggregateId) (we.Entity[struct{}], error) {
+	state := struct{}{}
+	return we.Entity[struct{}]{
+		Aggregate: we.AggregateId{Type: "counter", Key: "a"},
+		Revision:  we.Revision("01HX0000000000000000000000"),
+		Type:      "counter",
+		State:     &state,
+	}, nil
+}
+
+func (s loadableService) Execute(ctx context.Context, id we.AggregateId, _ we.Command) (we.Entity[struct{}], error) {
+	return s.Load(ctx, id)
+}
+
 // invokeTrackingService fails the test if any service method is reached.
 type invokeTrackingService struct{ t *testing.T }
 

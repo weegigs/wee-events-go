@@ -3,7 +3,6 @@ package we
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 )
 
 type EntitySerializer[T any] func(entity Entity[T]) (map[string]any, error)
@@ -35,12 +34,11 @@ type ResourceEncoder[T any] struct {
 	Serializer EntitySerializer[T]
 }
 
-// Encode writes the entity as a JSON resource. The resource is fully
-// serialized before any byte reaches the wire: a serialization failure returns
-// the error without touching the ResponseWriter, leaving the response — status
-// code and body — to the caller. Internal error text is never written to the
-// client.
-func (encoder ResourceEncoder[T]) Encode(w http.ResponseWriter, r *http.Request, e Entity[T]) error {
+// Marshal serializes the entity to the bytes of its JSON resource
+// representation. It is pure: a failure returns before any byte reaches a
+// transport, so the caller (typically a connector) alone owns the response
+// (SURFACE-S4.R3). Internal error text never reaches the resource bytes.
+func (encoder ResourceEncoder[T]) Marshal(e Entity[T]) ([]byte, error) {
 	serialize := encoder.Serializer
 	if serialize == nil {
 		serialize = StateSerializer[T]
@@ -48,7 +46,7 @@ func (encoder ResourceEncoder[T]) Encode(w http.ResponseWriter, r *http.Request,
 
 	resource, err := serialize(e)
 	if err != nil {
-		return fmt.Errorf("failed to serialize resource: %w", err)
+		return nil, fmt.Errorf("failed to serialize resource: %w", err)
 	}
 
 	resource["$id"] = e.Aggregate.Encode()
@@ -57,14 +55,7 @@ func (encoder ResourceEncoder[T]) Encode(w http.ResponseWriter, r *http.Request,
 
 	body, err := json.Marshal(resource)
 	if err != nil {
-		return fmt.Errorf("failed to encode resource: %w", err)
+		return nil, fmt.Errorf("failed to encode resource: %w", err)
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(body); err != nil {
-		return fmt.Errorf("failed to write resource: %w", err)
-	}
-
-	return nil
+	return body, nil
 }
