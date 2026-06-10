@@ -178,7 +178,7 @@ func TestLoadAndExecuteThroughRuntime(t *testing.T) {
 		Request(ctx, incrementCommand(t, 9), restate.WithIdempotencyKey("live-exec"))
 	require.NoError(t, err)
 	assert.Equal(t, float64(9), executed["current"])
-	assert.Equal(t, "counter.live-1", executed["$id"])
+	assert.Equal(t, "counter:live-1", executed["$id"])
 	assert.Equal(t, "counter:counter", executed["$type"])
 
 	loaded, err := ingress.Object[restate.Void, map[string]any](client, serviceName, key, "load").

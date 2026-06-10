@@ -2,7 +2,6 @@ package we
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 )
 
@@ -35,27 +34,37 @@ type AggregateId struct {
 	Key  string `json:"key"`
 }
 
+// EncodedAggregateId is the durable reference format for aggregate
+// identities: the encoded form is the reference format for documents that
+// point at aggregates — the string they store when they reference one
+// (IDENTITY-S2.R4). Its canonical form is `<type> ":" <key>` and its grammar
+// is frozen (see ADR-0008): loosening is permitted, tightening is not.
 type EncodedAggregateId string
 
+// Encode renders the canonical string form of an aggregate identity:
+// `<type> ":" <key>`, byte-for-byte the wee-events.rs Display form
+// (IDENTITY-S2, ADR-0008). It is infallible for every identity accepted by
+// MakeAggregateId.
 func (id AggregateId) Encode() EncodedAggregateId {
-	return EncodedAggregateId(strings.Join([]string{id.Type, id.Key}, "."))
+	return EncodedAggregateId(id.Type + ":" + id.Key)
 }
 
 func (id EncodedAggregateId) String() string {
 	return string(id)
 }
 
-func (id EncodedAggregateId) Decode() (*AggregateId, error) {
-	seperated := strings.Split(string(id), ".")
-	if len(seperated) < 2 {
-		return nil, errors.New("expected . delimiter in aggregate id")
+// Decode is the canonical parser for the encoded form (IDENTITY-S3),
+// mirroring Rust's FromStr: the first ':' separates type from key, and the
+// parts are validated through MakeAggregateId. Any later colon lands in the
+// key part and is rejected by MakeAggregateId's charset validation; the Cut
+// strategy survives future grammar loosening. When no separator exists, the
+// returned error's Type field carries the raw input and Key is empty.
+func (id EncodedAggregateId) Decode() (AggregateId, error) {
+	aggregateType, key, found := strings.Cut(string(id), ":")
+	if !found {
+		return AggregateId{}, &InvalidAggregateIdError{Type: aggregateType, Reason: ReasonMissingSeparator}
 	}
-
-	return &AggregateId{
-		Type: seperated[0],
-		Key:  strings.Join(seperated[1:], "."),
-	}, nil
-
+	return MakeAggregateId(aggregateType, key)
 }
 
 type DomainEvent any

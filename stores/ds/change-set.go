@@ -30,7 +30,3 @@ func (cs *ChangeSet) RecordedEvents() ([]we.RecordedEvent, error) {
 
 	return evts, nil
 }
-
-func (cs *ChangeSet) AggregateId() (*we.AggregateId, error) {
-	return we.EncodedAggregateId(cs.PartitionKey).Decode()
-}
