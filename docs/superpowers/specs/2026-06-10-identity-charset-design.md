@@ -15,8 +15,13 @@ word     = lower *( lower / digit )         ; first token starts with a letter
 token    = 1*( lower / digit )
 key      = segment *( "|" segment )         ; 1–512 octets total
 segment  = 1*( ALPHA / DIGIT / "-" / "." / "_" / "@" )
-           ; no segment is "." or ".."
 ```
+
+Plus one normative prose rule the ABNF cannot express cleanly: **the key as a
+whole is never `.` or `..`** (a part used as a URL path component would be
+dot-segment-normalised away). The rule is whole-key only — `..` inside a key
+(`a|..|b`, `v1..2`) is opaque data and legal; the hazard exists only when the
+entire path component is a dot-segment.
 
 The two separators are treated identically: `-` joins non-empty tokens inside a
 type exactly as `|` joins non-empty segments inside a key — no leading,
@@ -77,9 +82,13 @@ ADR-0010. Content, in cut-from-the-bottom order:
 
 - **Canonical form:** `<type> ":" <key>`; parse at the first colon; the
   canonical form contains exactly one colon.
-- **Grammar:** the ABNF above, plus the per-segment `.`/`..` exclusion in
-  prose (a key with no pipes is a single segment, so this subsumes the old
-  whole-part rule).
+- **Grammar:** the ABNF above, plus the whole-key `.`/`..` exclusion as a
+  named prose rule (URL dot-segment hazard; whole key only — interior `..` is
+  opaque data).
+- **Separator ownership:** placement rules exist only where the spec assigns a
+  character meaning — `|` in keys, `-` in types. All other characters inside a
+  segment (`.`, `_`, `@`, `-`) are opaque data from foreign grammars (emails,
+  domains, versions) and carry no placement rules.
 - **Case sensitivity:** identities are byte-wise case-sensitive; the type
   grammar is lowercase-only, key segments preserve case (ULIDs are uppercase).
 - **Key opacity:** segments are non-empty by grammar; no implementation parses
@@ -131,10 +140,10 @@ Coverage requirements:
   and doubled `-` rejected; digit-leading interior token valid (`base-64`);
   `.`, `_`, `~`, `|` rejected; 64-octet boundary (64 valid, 65 invalid).
 - Key edges: `@` and `.` valid in segments; `~`, `%`, `:`, `/`, whitespace,
-  non-ASCII rejected; leading/trailing/doubled `|` rejected; segment equal to
-  `.` or `..` rejected (and valid when embedded, e.g. `v1.2`); 512-octet
-  boundary; email-form key (`user:kevin@example.com`); ULID-form key
-  (uppercase preserved).
+  non-ASCII rejected; leading/trailing/doubled `|` rejected; whole key of `.`
+  or `..` rejected, while `a|..|b` and `v1..2` are valid (whole-key rule
+  only); 512-octet boundary; email-form key (`user:kevin@example.com`);
+  ULID-form key (uppercase preserved).
 - Valid parse vectors round-trip: re-encoding the parsed parts reproduces the
   input bytes exactly.
 
@@ -156,7 +165,7 @@ rare and deliberate.
 
 - `we/aggregate-id.go`: `validIdentityPart` splits into type and key rules
   (type: lowercase kebab, letter-first, ≤ 64; key: segment grammar, ≤ 512,
-  per-segment `.`/`..` exclusion). The reason set is unchanged.
+  whole-key `.`/`..` exclusion). The reason set is unchanged.
 - `we/identity-gen.go`: generators regenerated for the revised grammar
   (type `[a-z][a-z0-9-]*` letter-first; key as pipe-joined segments).
 - `we/identity-vectors_test.go` (new): loads
