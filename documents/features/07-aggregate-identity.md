@@ -30,6 +30,9 @@ unreleased).
 
 - [ADR-0008](../adr/0008-aggregate-identity.md) — canonical `type:key` form, identity
   invariants, edge parsing, and the durable-reference contract.
+- [ADR-0009](../adr/0009-property-based-testing-rapid.md) — property-based testing via
+  `pgregory.net/rapid` for the codec properties and the generative conformance
+  scenario.
 
 ## User stories
 
@@ -109,9 +112,11 @@ stores as if it were real.*
   shall return the corresponding `*we.InvalidAggregateIdError` (`"empty-type"` /
   `"empty-key"`), exactly as Rust's `AggregateIdParseError` distinguishes the cases.
 - **IDENTITY-S3.R4** (ubiquitous) — `Decode(Encode(id)) == id` shall hold for every
-  identity accepted by `MakeAggregateId`, enforced by a round-trip property test that
-  exercises the full key charset (`.`, `-`, `_`, `~`, `|`, mixed case, digits) —
-  including a composite key (`kevin|card|boots`).
+  identity accepted by `MakeAggregateId`, enforced **property-based** (ADR-0009):
+  identities generated across the full charset grammar round-trip exactly, and a
+  companion rejection property shows that injecting any generated out-of-charset
+  character into either part yields the correct `invalid-type`/`invalid-key` reason.
+  Failures shrink to minimal counterexamples.
 - **IDENTITY-S3.R5** (event-driven) — When the HTTP connector receives `{type}` and
   `{key}` path parameters, it shall build the identity via `MakeAggregateId` for both
   `getResource` and `executeCommand`.
@@ -145,11 +150,15 @@ backend can silently merge two identities.*
   current backend carries the charset verbatim — `|` is an ordinary NATS token
   character — but that is an observation, not the contract; the R3 scenario is what
   binds every present and future store.)*
-- **IDENTITY-S4.R3** (event-driven) — When an aggregate whose key exercises the full
-  key charset (`.`, `-`, `_`, `~`, `|`, mixed case) is published and loaded, every
-  backend shall return events whose `AggregateId` equals the published identity. *(New
-  conformance-suite scenario; runs against memory, ds, jetstream, kurrent, and sqlite
-  via `Run(t)` auto-registration.)*
+- **IDENTITY-S4.R3** (event-driven) — When aggregates with **generated** identities
+  (full charset grammar, including composite `|` keys) and **generated** payload
+  content (arbitrary unicode strings, including empty) are published and loaded,
+  every backend shall return events whose `AggregateId` equals the published identity
+  and whose payload decodes to the published values. *(New property-based
+  conformance-suite scenario — ADR-0009, rapid's default 100 checks per backend —
+  registered in `scenarios()` so it runs against memory, ds, jetstream, kurrent, and
+  sqlite automatically. This is the binding form of R2 for stores that do not exist
+  yet.)*
 - **IDENTITY-S4.R4** (unwanted) — If the canonical-form change alters a backend's
   derived keys (it does — previously dot-joined), then previously written dot-keyed
   development data is orphaned, not migrated. *(Owner decision: correctness over
@@ -175,8 +184,8 @@ backend can silently merge two identities.*
 | IDENTITY-S1.R7, S1.R8 | Documentation review (ADR-0008 + roadmap follow-up recorded; composite convention stated, no segment parsing anywhere) |
 | IDENTITY-S2.R1, S2.R2 | Unit: `Encode` golden values; cross-checked against Rust `Display` fixtures (`counter:live-1`) |
 | IDENTITY-S2.R3 | wehttp + werestate response tests assert `$id == "counter:live-1"` form |
-| IDENTITY-S3.R1–R4 | Unit: decode error table (missing separator, empty parts, colon-bearing key → `invalid-key`); round-trip property test over the unreserved set |
+| IDENTITY-S3.R1–R4 | Unit: decode error table (missing separator, empty parts, colon-bearing key → `invalid-key`); rapid property tests — grammar-generated round-trip + out-of-charset rejection (ADR-0009) |
 | IDENTITY-S3.R5, S3.R6 | wehttp test: request with colon-bearing type and space-bearing key segments → 400 `"invalid aggregate id"`, stub service never invoked |
 | IDENTITY-S3.R7 | Existing `EncodeKey`/`decodeKey` tests pass against the delegating implementation; the former colon-in-key round-trip flips to a rejection test (`invalid-key`) |
-| IDENTITY-S4.R1, S4.R3 | New conformance scenario `IdentityRoundTripsThroughStorage` registered in `scenarios()`; green on all five backends (Docker for ds/jetstream/kurrent) |
+| IDENTITY-S4.R1, S4.R3 | New property-based conformance scenario `IdentityRoundTripsThroughStorage` (rapid-generated identities + payloads) registered in `scenarios()`; green on all five backends (Docker for ds/jetstream/kurrent) |
 | IDENTITY-S4.R2 | The S4.R3 scenario is the binding check for every store, present and future — a store that rejects or mangles any valid identity fails it; ADR-0008 records the adaptation contract |

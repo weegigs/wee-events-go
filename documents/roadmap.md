@@ -122,6 +122,7 @@ not edited). Current log:
 | [0006](adr/0006-lint-enforcement.md) | Enforce resource-lifecycle principles via golangci-lint | Accepted |
 | [0007](adr/0007-explicit-event-encoding.md) | Event encoding is an explicit constructor argument | Accepted |
 | [0008](adr/0008-aggregate-identity.md) | Aggregate identity: canonical `type:key` form and validated construction | Accepted |
+| [0009](adr/0009-property-based-testing-rapid.md) | Use `pgregory.net/rapid` for property-based conformance testing | Accepted |
 
 ## Reference
 

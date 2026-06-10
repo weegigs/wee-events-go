@@ -21,6 +21,7 @@ changes, supersede its ADR and the references still resolve.
 | [0006](0006-lint-enforcement.md) | Enforce resource-lifecycle principles via golangci-lint | Accepted |
 | [0007](0007-explicit-event-encoding.md) | Event encoding is an explicit constructor argument | Accepted |
 | [0008](0008-aggregate-identity.md) | Aggregate identity: canonical `type:key` form and validated construction | Accepted |
+| [0009](0009-property-based-testing-rapid.md) | Use `pgregory.net/rapid` for property-based conformance testing | Accepted |
 
 ## Conventions
 
