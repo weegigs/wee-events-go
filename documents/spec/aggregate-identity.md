@@ -126,5 +126,5 @@ vendor a verbatim copy into their test trees.
 | Implementation | Status |
 |---|---|
 | Go (`wee-events-go`) | Conformant (in-tree) |
-| Rust (`wee-events.rs`) | Pending — roadmap item D |
+| Rust (`wee-events.rs`) | Conformant (vendored vectors, spec v1) |
 | TypeScript (`wee-events`) | Pending — legacy `type.key` dot form; migration unscheduled |

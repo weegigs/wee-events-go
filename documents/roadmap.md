@@ -100,12 +100,6 @@ Surfaced by the 01–05 work and its reviews; recorded for later, not yet schedu
   v0.42+ `network.Port` API, replace the bespoke harness with the SDK's `testing` helper. This
   is the "known compatibility problem" exception noted in [ADR-0004](adr/0004-restate-go-sdk.md).
   Checked 2026-06-10: v0.24.0 remains the latest release; still blocked.
-- **Align `wee-events.rs` to the tightened identity charset.** Feature 07 restricts
-  `AggregateId` parts to RFC 3986 unreserved characters ([spec](spec/aggregate-identity.md), [ADR-0010](adr/0010-identity-grammar.md));
-  Rust's `FromStr` still accepts colon-bearing keys and any charset. Go is a strict
-  subset, so Go-written identities are Rust-valid, but a Rust-written identity outside
-  the charset fails Go's parser (loudly). Implement against the shared spec and vendor
-  its conformance vectors (`documents/spec/aggregate-identity.vectors.json`).
 - **KurrentDB client does not recover a closed gRPC connection.** Observed during the
   Feature 07 conformance soaks: a transient connection drop (`ErrorCodeConnectionClosed`)
   poisons every subsequent operation on the shared `kurrentdb.Client` for the remainder
