@@ -5,10 +5,13 @@ import (
 	"fmt"
 
 	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
+
+	"github.com/weegigs/wee-events-go/we"
 )
 
 // Creates a new KurrentEventStore instance configured to connect to a local, insecure, KurrentDB instance.
-func NewLocalKurrentStore(ctx context.Context, options ...EventStoreOption) (*KurrentEventStore, error) {
+// The encoder is the store's explicit write encoding (ENCODING-S2.R1).
+func NewLocalKurrentStore(ctx context.Context, encoder we.Encoder, options ...EventStoreOption) (*KurrentEventStore, error) {
 
 	connection := fmt.Sprintf("kurrentdb://admin:changeit@%s:%s?tls=false", "localhost", "2113")
 
@@ -22,7 +25,5 @@ func NewLocalKurrentStore(ctx context.Context, options ...EventStoreOption) (*Ku
 		return nil, err
 	}
 
-	store := NewEventStore(client, options...)
-
-	return store, nil
+	return NewEventStore(client, encoder, options...)
 }

@@ -27,22 +27,31 @@ func PageSize(size int) EventStoreOption {
 	}
 }
 
-func NewEventStore(client *kurrentdb.Client, options ...EventStoreOption) *KurrentEventStore {
+// NewEventStore wraps a KurrentDB client in a we.EventStore. The encoder is
+// the store's explicit write encoding (ENCODING-S2.R1); nil is a construction
+// error, never a deferred panic (ENCODING-S2.R2).
+func NewEventStore(client *kurrentdb.Client, encoder we.Encoder, options ...EventStoreOption) (*KurrentEventStore, error) {
+	if encoder == nil {
+		return nil, errors.New("kurrent: encoder is required")
+	}
+
 	store := &KurrentEventStore{
 		db:       client,
 		pageSize: defaultPageSize,
+		encoder:  encoder,
 	}
 
 	for _, option := range options {
 		option(store)
 	}
 
-	return store
+	return store, nil
 }
 
 type KurrentEventStore struct {
 	db       *kurrentdb.Client
 	pageSize int
+	encoder  we.Encoder
 }
 
 func (es *KurrentEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
@@ -50,8 +59,28 @@ func (es *KurrentEventStore) Publish(ctx context.Context, aggregateId we.Aggrega
 		// An empty publish is a no-op, not an error (CONFORMANCE-S3). Guarding
 		// here matches the other stores and avoids a pointless append round-trip
 		// whose outcome would otherwise depend on KurrentDB's server-side
-		// handling of a zero-event append.
+		// handling of a zero-event append. The no-op deliberately short-circuits
+		// BEFORE override validation: with zero events the encoder is never used
+		// and nothing can be mis-recorded, so an empty publish is a state, not
+		// an error.
 		return nil
+	}
+
+	// Resolve the publish encoder before encoding: an explicit per-publish
+	// override wins, and an explicit nil override is an error that records
+	// nothing (ENCODING-S2.R3, ENCODING-S2.R5).
+	encoder, err := options.EncoderFor(es.encoder)
+	if err != nil {
+		return fmt.Errorf("kurrent: %w", err)
+	}
+
+	encoded := make([]we.Data, len(events))
+	for i, event := range events {
+		data, err := we.MarshalToData(encoder, event)
+		if err != nil {
+			return fmt.Errorf("failed to encode event: %w", err)
+		}
+		encoded[i] = data
 	}
 
 	streamId := aggregateId.Encode().String()
@@ -62,27 +91,31 @@ func (es *KurrentEventStore) Publish(ctx context.Context, aggregateId we.Aggrega
 	if options.CausationId != "" {
 		metadata["$causationId"] = options.CausationId.String()
 	}
+	// Persist the encoding discriminator: KurrentDB's ContentType only
+	// distinguishes JSON from binary, so the true discriminator (e.g.
+	// application/cbor) must travel in the user metadata. The encoder is fixed
+	// per publish, so one entry describes the whole batch. This also makes the
+	// user metadata ALWAYS non-empty — previously events without correlation or
+	// causation ids stored no metadata at all — so external stream consumers
+	// using metadata-presence checks see different behavior for new events.
+	metadata["$encoding"] = encoded[0].Encoding
 
-	var err error
-	var md []byte
-	if len(metadata) > 0 {
-		md, err = json.Marshal(metadata)
-		if err != nil {
-			return fmt.Errorf("failed to marshal metadata: %w", err)
-		}
+	md, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
 	esevents := make([]kurrentdb.EventData, len(events))
 	for i, event := range events {
-		data, err := json.Marshal(event)
-		if err != nil {
-			return fmt.Errorf("failed to marshal event: %w", err)
+		contentType := kurrentdb.ContentTypeBinary
+		if encoded[i].Encoding == we.JSONEncoding {
+			contentType = kurrentdb.ContentTypeJson
 		}
 
 		esevents[i] = kurrentdb.EventData{
-			ContentType: kurrentdb.ContentTypeJson,
+			ContentType: contentType,
 			EventType:   we.EventTypeOf(event).String(),
-			Data:        data,
+			Data:        encoded[i].Data,
 			Metadata:    md,
 		}
 	}
@@ -212,9 +245,21 @@ func (es *KurrentEventStore) read(ctx context.Context, aggregate we.AggregateId,
 			}
 		}
 
+		// $encoding stays out of RecordedEventMetadata: only the named
+		// correlation and causation keys map to user-visible fields.
 		metadata := we.RecordedEventMetadata{
 			CorrelationId: we.CorrelationID(userMetadata["$correlationId"]),
 			CausationId:   we.EventID(userMetadata["$causationId"]),
+		}
+
+		// The persisted $encoding discriminator is authoritative. Events stored
+		// before the discriminator existed carry none: for those the KurrentDB
+		// ContentType *is* the recorded discriminator (the JSON-era write path
+		// always set ContentTypeJson), so falling through to it is a read of
+		// stored state, not a default.
+		encoding := userMetadata["$encoding"]
+		if encoding == "" {
+			encoding = e.ContentType
 		}
 
 		recorded := we.RecordedEvent{
@@ -224,7 +269,7 @@ func (es *KurrentEventStore) read(ctx context.Context, aggregate we.AggregateId,
 			Timestamp:   we.TimestampFromTime(e.CreatedDate),
 			EventType:   we.EventType(e.EventType),
 			Data: we.Data{
-				Encoding: e.ContentType,
+				Encoding: encoding,
 				Data:     e.Data,
 			},
 			Metadata: metadata,
