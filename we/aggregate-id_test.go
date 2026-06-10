@@ -95,18 +95,34 @@ func TestCanonicalEncoding(t *testing.T) {
 	// part is rejected with the correct closed-set reason.
 	t.Run("property: out-of-charset characters are rejected", func(t *testing.T) {
 		rapid.Check(t, func(rt *rapid.T) {
+			typ := IdentityTypeGen().Draw(rt, "type")
 			key := IdentityKeyGen().Draw(rt, "key")
-			bad := rapid.Rune().Filter(func(r rune) bool {
-				return !strings.ContainsRune(identityKeyRunes, r)
-			}).Draw(rt, "bad")
-			pos := rapid.IntRange(0, len(key)).Draw(rt, "pos") // generator output is ASCII; byte positions are rune positions
-			mutated := key[:pos] + string(bad) + key[pos:]
 
-			_, err := MakeAggregateId("customer", mutated)
+			// The type charset excludes '|', which the key charset allows —
+			// filter against the charset of the part being mutated.
+			part := rapid.SampledFrom([]string{"type", "key"}).Draw(rt, "part")
+			target, charset, reason := key, identityKeyRunes, ReasonInvalidKey
+			if part == "type" {
+				target, charset, reason = typ, identityTypeRunes, ReasonInvalidType
+			}
+
+			bad := rapid.Rune().Filter(func(r rune) bool {
+				return !strings.ContainsRune(charset, r)
+			}).Draw(rt, "bad")
+			pos := rapid.IntRange(0, len(target)).Draw(rt, "pos") // generator output is ASCII; byte positions are rune positions
+			mutated := target[:pos] + string(bad) + target[pos:]
+
+			if part == "type" {
+				typ = mutated
+			} else {
+				key = mutated
+			}
+
+			_, err := MakeAggregateId(typ, key)
 			require.Error(rt, err)
 			var invalid *InvalidAggregateIdError
 			require.True(rt, errors.As(err, &invalid), "got %T", err)
-			require.Equal(rt, ReasonInvalidKey, invalid.Reason)
+			require.Equal(rt, reason, invalid.Reason)
 		})
 	})
 

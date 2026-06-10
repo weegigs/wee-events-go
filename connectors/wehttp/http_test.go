@@ -193,8 +193,12 @@ func TestInvalidAggregateIdMapsTo400(t *testing.T) {
 	}{
 		{"GET with colon-bearing type", http.MethodGet, "/with:colon/key1"},
 		{"GET with space-bearing type", http.MethodGet, "/%20/key1"},
+		{"GET with colon-bearing key", http.MethodGet, "/counter/with:colon"},
+		{"GET with space-bearing key", http.MethodGet, "/counter/with%20space"},
 		{"POST with colon-bearing type", http.MethodPost, "/with:colon/key1"},
 		{"POST with space-bearing type", http.MethodPost, "/%20/key1"},
+		{"POST with colon-bearing key", http.MethodPost, "/counter/with:colon"},
+		{"POST with space-bearing key", http.MethodPost, "/counter/with%20space"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := NewHandler[struct{}](invokeTrackingService{t: t})

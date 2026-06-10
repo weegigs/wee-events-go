@@ -129,7 +129,7 @@ degraded-but-plausible behaviour.*
 
 | Requirement | Test |
 |---|---|
-| SURFACE-S1.R1–R3 | Account sample handler tests assert `we.Rejection` with exact codes and context fields via `errors.As`; wehttp test drives a refused account command → 422 body; werestate `mapError` test asserts terminal classification for each code |
+| SURFACE-S1.R1–R3 | Account guards are unit-tested for typed rejections (`samples/account/handlers_test.go` `TestGuardsReturnTypedRejections` asserts `we.Rejection` with exact codes and context fields via `errors.As`); connector coverage is transitive through the shared `we.Rejection` type — wehttp's existing `TestCommandErrorClassification` maps any `we.Rejection` to a 422 body, and werestate's `mapError` tests assert terminal classification for any `we.Rejection` |
 | SURFACE-S1.R4 | ADR-0005 text review (doc change, no test) |
 | SURFACE-S2.R1–R3 | Unit tests feed: deeply wrapped `TransactionCanceledException` (extra wrap layers) → `RevisionConflict`; reasons `[nil-Code, ConditionalCheckFailed]` → `RevisionConflict` without panic; reasons `[nil-Code]` only → original error |
 | SURFACE-S2.R4 | Unit: wrapped `fmt.Errorf("…%w", we.RevisionConflict)` still classifies |

@@ -184,7 +184,7 @@ backend can silently merge two identities.*
 | IDENTITY-S1.R1–R6 | Unit: table-driven `MakeAggregateId` cases — valid (full charsets, incl. composite `kevin\|card\|boots`), empty type/key, colon/space/percent in type and key, `\|` in type (rejected — key-only), `"."`/`".."` parts; assert `*InvalidAggregateIdError` with exact `Reason` via `errors.As` |
 | IDENTITY-S1.R7, S1.R8 | Documentation review (ADR-0008 + roadmap follow-up recorded; composite convention stated, no segment parsing anywhere) |
 | IDENTITY-S2.R1, S2.R2 | Unit: `Encode` golden values; cross-checked against Rust `Display` fixtures (`counter:live-1`) |
-| IDENTITY-S2.R3 | wehttp + werestate response tests assert `$id == "counter:live-1"` form |
+| IDENTITY-S2.R3 | `we/resource-encoder_test.go` asserts the canonical `$id` form (`"counter:a"`) in encoded responses — wehttp delegates to this pure encoder; werestate's integration test asserts `$id == "counter:live-1"` directly |
 | IDENTITY-S3.R1–R4 | Unit: decode error table (missing separator, empty parts, colon-bearing key → `invalid-key`); rapid property tests — grammar-generated round-trip + out-of-charset rejection (ADR-0009) |
 | IDENTITY-S3.R5, S3.R6 | wehttp test: request with colon-bearing type and space-bearing key segments → 400 `"invalid aggregate id"`, stub service never invoked |
 | IDENTITY-S3.R7 | Existing `EncodeKey`/`decodeKey` tests pass against the delegating implementation; the former colon-in-key round-trip flips to a rejection test (`invalid-key`) |
