@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -309,24 +308,24 @@ func TestRevisionConflictIsRetryable(t *testing.T) {
 	assert.False(t, restate.IsTerminalError(mapped), "RevisionConflict is a retry signal, not terminal")
 }
 
-// EncodeKey/decodeKey must form a bijection. A colon in the aggregate Type would
-// make the addressing key ambiguous (the first colon is the type:key separator),
-// so EncodeKey rejects it at the boundary with a terminal-classified error.
-func TestEncodeKeyRejectsColonInType(t *testing.T) {
-	t.Run("colon in type is rejected", func(t *testing.T) {
+// EncodeKey/decodeKey form a bijection via the canonical codec (IDENTITY-S3.R7).
+// Colons are rejected in both Type and Key — the charset admits no colon
+// anywhere; the canonical separator stays unambiguous.
+func TestEncodeKeyRejectsColons(t *testing.T) {
+	t.Run("colon in type is rejected by the charset", func(t *testing.T) {
 		_, err := EncodeKey(we.AggregateId{Type: "counter:evil", Key: "k1"})
 		require.Error(t, err)
-		// The handlers wrap this boundary error as a terminal bad-request error.
-		assert.True(t, restate.IsTerminalError(mapError(restate.TerminalError(err, http.StatusBadRequest))))
+		var invalid *we.InvalidAggregateIdError
+		require.True(t, errors.As(err, &invalid))
+		assert.Equal(t, we.ReasonInvalidType, invalid.Reason)
 	})
 
-	t.Run("colon in key round-trips", func(t *testing.T) {
-		id := we.AggregateId{Type: "counter", Key: "tenant:42"}
-		key, err := EncodeKey(id)
-		require.NoError(t, err)
-		decoded, err := decodeKey(key)
-		require.NoError(t, err)
-		assert.Equal(t, id, decoded)
+	t.Run("colon in key is rejected by the charset", func(t *testing.T) {
+		_, err := EncodeKey(we.AggregateId{Type: "counter", Key: "tenant:42"})
+		require.Error(t, err)
+		var invalid *we.InvalidAggregateIdError
+		require.True(t, errors.As(err, &invalid))
+		assert.Equal(t, we.ReasonInvalidKey, invalid.Reason)
 	})
 }
 

@@ -9,21 +9,18 @@
 // no core we/ type is modified and no per-command glue is generated (see
 // documents/adr/0004-restate-go-sdk.md).
 //
-// Delimiters: the virtual-object addressing key uses `type:key` (the form
-// Restate routes on, decoded by decodeKey) while the response `$id` uses
-// `type.key` (we.AggregateId.Encode). The two delimiters are intentionally
-// different — the addressing key is parsed by this connector, the `$id` is the
-// framework's canonical encoding mirrored from the wehttp encoder.
+// Addressing: the virtual-object key IS the canonical encoded form produced by
+// we.AggregateId.Encode() — `type:key` (IDENTITY-S3.R7, ADR-0008). The
+// connector delegates all encoding and decoding to the canonical codec; no
+// local separator logic is maintained here.
 package werestate
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"net/http"
-	"strings"
 
 	restate "github.com/restatedev/sdk-go"
 	"github.com/rs/zerolog"
@@ -224,45 +221,21 @@ func (s *service[T]) project(entity we.Entity[T]) (EntityResponse, error) {
 	}, nil
 }
 
-// decodeKey parses a virtual-object key of the form `type:key` into an
-// AggregateId. The key form is `type:key` per the epic; a key may itself contain
-// colons, so only the first separator is significant. The decoded Type can never
-// contain a colon (Cut stops at the first separator), which is exactly the
-// invariant EncodeKey enforces on the way in — the two are a strict bijection.
-func decodeKey(key string) (we.AggregateId, error) {
-	t, k, found := strings.Cut(key, ":")
-	if !found || t == "" || k == "" {
-		return we.AggregateId{}, fmt.Errorf("invalid aggregate key %q: expected type:key", key)
+// EncodeKey builds the virtual-object key for an aggregate id. The Restate
+// object key IS the canonical encoded form (IDENTITY-S3.R7, ADR-0008): one
+// codec, one set of invariants, shared with every other identity edge.
+func EncodeKey(id we.AggregateId) (string, error) {
+	valid, err := we.MakeAggregateId(id.Type, id.Key)
+	if err != nil {
+		return "", err
 	}
-
-	return we.AggregateId{Type: t, Key: k}, nil
+	return valid.Encode().String(), nil
 }
 
-// EncodeKey builds the virtual-object key (`type:key`) for an aggregate id. It is
-// the inverse of decodeKey and is used by callers (and the integration test) to
-// address an entity through the Restate ingress.
-//
-// The first colon is the type/key separator, so a colon in id.Type would make
-// EncodeKey and decodeKey disagree (the key would re-decode with a truncated
-// type and the remainder folded into the key), mis-routing or colliding
-// aggregates. EncodeKey rejects such a Type at the boundary (parse, don't
-// validate, principle 3). A colon in id.Key is fine: it falls after the first
-// separator and round-trips unchanged.
-func EncodeKey(id we.AggregateId) (string, error) {
-	if strings.Contains(id.Type, ":") {
-		return "", fmt.Errorf("invalid aggregate type %q: a colon is reserved as the type:key separator", id.Type)
-	}
-	// decodeKey rejects an empty type or key, so refusing them here keeps the
-	// pair a strict bijection: EncodeKey never produces a key that fails to
-	// decode.
-	if id.Type == "" {
-		return "", fmt.Errorf("invalid aggregate id: type must not be empty")
-	}
-	if id.Key == "" {
-		return "", fmt.Errorf("invalid aggregate id: key must not be empty")
-	}
-
-	return id.Type + ":" + id.Key, nil
+// decodeKey delegates to the canonical parser; the handlers classify its
+// failures as terminal bad-request errors.
+func decodeKey(key string) (we.AggregateId, error) {
+	return we.EncodedAggregateId(key).Decode()
 }
 
 // mapError applies the connector's boundary error mapping (RESTATE-S3),
