@@ -150,7 +150,7 @@ func (e *restartableEndpoint) restart() {
 // plus idempotent replay serves the journaled result without re-running the
 // dispatch.
 func TestServiceRestartMidInvocation(t *testing.T) {
-	backing := newMemoryStore()
+	backing := newMemoryStore(we.MakeJSONEncoder())
 	store := newGatedStore(backing)
 	svc := NewService(counterService(store))
 

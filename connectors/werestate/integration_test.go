@@ -68,7 +68,7 @@ func incrementCommand(t *testing.T, amount int) we.RemoteCommand {
 func startEnvironment(t *testing.T) (*ingress.Client, *memoryStore) {
 	t.Helper()
 
-	store := newMemoryStore()
+	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 
 	restateSrv := server.NewRestate().Bind(svc.Definition(serviceName))

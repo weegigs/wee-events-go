@@ -29,7 +29,7 @@ func newRejectionService(
 ) (*entityService[rejectionState], *memoryEventStore) {
 	t.Helper()
 
-	store := newMemoryEventStore()
+	store := newMemoryEventStore(MakeJSONEncoder())
 
 	loader := &EntityLoader[rejectionState]{
 		Loader: Loader(store),

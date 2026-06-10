@@ -2,6 +2,7 @@ package account_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -20,12 +21,17 @@ type memoryStore struct {
 	mu        sync.Mutex
 	streams   map[es.EncodedAggregateId][]es.RecordedEvent
 	revisions *es.RevisionGenerator
+	encoder   es.Encoder
 }
 
-func newMemoryStore() *memoryStore {
+// newMemoryStore mirrors the real store constructors: the caller names the
+// write encoding explicitly and the store holds it for the life of the
+// instance (ENCODING-S2.R1, ENCODING-S2.R4).
+func newMemoryStore(encoder es.Encoder) *memoryStore {
 	return &memoryStore{
 		streams:   map[es.EncodedAggregateId][]es.RecordedEvent{},
 		revisions: es.NewRevisionGenerator(),
+		encoder:   encoder,
 	}
 }
 
@@ -54,9 +60,23 @@ func (s *memoryStore) Publish(_ context.Context, id es.AggregateId, options es.P
 		return es.RevisionConflict
 	}
 
+	// An empty publish is a no-op, not an error (CONFORMANCE-S3); it
+	// short-circuits before override validation, matching the real stores.
+	if len(events) == 0 {
+		return nil
+	}
+
+	// Resolve the publish encoder the way real stores do: an explicit
+	// per-publish override wins over the store's constructor encoder
+	// (ENCODING-S2.R3, ENCODING-S2.R5).
+	encoder, err := options.EncoderFor(s.encoder)
+	if err != nil {
+		return fmt.Errorf("memory: %w", err)
+	}
+
 	now := time.Now()
 	for _, evt := range events {
-		data, err := es.MarshalToData(es.MakeJSONEncoder(), evt)
+		data, err := es.MarshalToData(encoder, evt)
 		if err != nil {
 			return err
 		}
@@ -77,7 +97,7 @@ func (s *memoryStore) Publish(_ context.Context, id es.AggregateId, options es.P
 
 func TestAccount(t *testing.T) {
 	ctx := context.Background()
-	store := newMemoryStore()
+	store := newMemoryStore(es.MakeJSONEncoder())
 	service := account.Service(store)
 
 	t.Run("an account that was never opened is not found", func(t *testing.T) {

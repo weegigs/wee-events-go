@@ -24,12 +24,17 @@ type memoryStore struct {
 	mu        sync.Mutex
 	events    map[we.AggregateId][]we.RecordedEvent
 	revisions *we.RevisionGenerator
+	encoder   we.Encoder
 }
 
-func newMemoryStore() *memoryStore {
+// newMemoryStore mirrors the real store constructors: the caller names the
+// write encoding explicitly and the store holds it for the life of the
+// instance (ENCODING-S2.R1, ENCODING-S2.R4).
+func newMemoryStore(encoder we.Encoder) *memoryStore {
 	return &memoryStore{
 		events:    make(map[we.AggregateId][]we.RecordedEvent),
 		revisions: we.NewRevisionGenerator(),
+		encoder:   encoder,
 	}
 }
 
@@ -46,13 +51,27 @@ func (s *memoryStore) Load(_ context.Context, id we.AggregateId) (we.Aggregate, 
 	return we.Aggregate{Id: id, Events: events, Revision: revision}, nil
 }
 
-func (s *memoryStore) Publish(_ context.Context, id we.AggregateId, _ we.PublishOptions, events ...we.DomainEvent) error {
+func (s *memoryStore) Publish(_ context.Context, id we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// An empty publish is a no-op, not an error (CONFORMANCE-S3); it
+	// short-circuits before override validation, matching the real stores.
+	if len(events) == 0 {
+		return nil
+	}
+
+	// Resolve the publish encoder the way real stores do: an explicit
+	// per-publish override wins over the store's constructor encoder
+	// (ENCODING-S2.R3, ENCODING-S2.R5).
+	encoder, err := options.EncoderFor(s.encoder)
+	if err != nil {
+		return fmt.Errorf("memory: %w", err)
+	}
+
 	existing := s.events[id]
 	for _, event := range events {
-		data, err := we.MarshalToData(we.MakeJSONEncoder(), event)
+		data, err := we.MarshalToData(encoder, event)
 		if err != nil {
 			return err
 		}
@@ -104,7 +123,7 @@ func incrementEnvelope(t *testing.T, amount int) we.RemoteCommand {
 // RESTATE-S1.R5 — dispatch goes through the supplied EntityService[T] /
 // RoutedDispatcher[T]; the connector does not re-implement command routing.
 func TestExecuteRoutesThroughEntityService(t *testing.T) {
-	store := newMemoryStore()
+	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 
 	id := we.AggregateId{Type: "counter", Key: "abc"}
@@ -118,7 +137,7 @@ func TestExecuteRoutesThroughEntityService(t *testing.T) {
 
 // RESTATE-S1.R2 — load returns current state with $id/$type/$revision.
 func TestLoadReturnsStateAndMetadata(t *testing.T) {
-	store := newMemoryStore()
+	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 
 	id := we.AggregateId{Type: "counter", Key: "load-1"}
@@ -144,7 +163,7 @@ func TestEnvelopeMatchesHTTPShape(t *testing.T) {
 	assert.EqualValues(t, "counter:increment", command.CommandName)
 	assert.Equal(t, "application/json", command.Payload.Encoding)
 
-	store := newMemoryStore()
+	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 	id := we.AggregateId{Type: "counter", Key: "env-1"}
 
@@ -204,7 +223,7 @@ func TestInfrastructureFailureIsRetryable(t *testing.T) {
 // RESTATE-S3.R3 — an unknown command name (CommandNotFoundError) is a refusal
 // that retrying cannot resolve, so it maps to a terminal error.
 func TestCommandNotFoundIsTerminal(t *testing.T) {
-	store := newMemoryStore()
+	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 
 	id := we.AggregateId{Type: "counter", Key: "refuse-1"}
@@ -262,7 +281,7 @@ func TestWrappedRejectionMapsToTerminal(t *testing.T) {
 // HandleRemoteCommand wrapped as a *we.DecodeError. It is a deterministic bad
 // input: retrying loops forever on a poison message, so it must be terminal.
 func TestDecodeErrorIsTerminal(t *testing.T) {
-	store := newMemoryStore()
+	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 	id := we.AggregateId{Type: "counter", Key: "decode-1"}
 
@@ -347,7 +366,7 @@ func TestEncodeKeyRejectsEmptyFields(t *testing.T) {
 // RESTATE-S4.R2 — phase 1 scope is execute/load/idempotency only; no
 // effect-routing surface is exposed by the connector.
 func TestPhaseOneScopeHasNoEffectRouting(t *testing.T) {
-	store := newMemoryStore()
+	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 
 	definition := svc.Definition("counter")

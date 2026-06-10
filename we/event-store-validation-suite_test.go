@@ -14,7 +14,7 @@ import (
 // faithful reference store passes them all.
 func TestValidationSuiteAgainstMemoryStore(t *testing.T) {
 	ctx := context.Background()
-	suite := NewEventStoreValidationSuite(ctx, newMemoryEventStore())
+	suite := NewEventStoreValidationSuite(ctx, newMemoryEventStore(MakeJSONEncoder()))
 	suite.Run(t)
 }
 
@@ -25,7 +25,7 @@ func TestValidationSuiteAgainstMemoryStore(t *testing.T) {
 // and confirmed against live subtest names produced by Run.
 func TestValidationSuiteRegistersScenarios(t *testing.T) {
 	ctx := context.Background()
-	suite := NewEventStoreValidationSuite(ctx, newMemoryEventStore())
+	suite := NewEventStoreValidationSuite(ctx, newMemoryEventStore(MakeJSONEncoder()))
 
 	registered := map[string]bool{}
 	for _, sc := range suite.scenarios() {
@@ -62,8 +62,8 @@ func TestSharedBackingSuiteAgainstMemoryStore(t *testing.T) {
 	ctx := context.Background()
 
 	backing := newMemoryBacking()
-	a := &memoryEventStore{backing: backing}
-	b := &memoryEventStore{backing: backing}
+	a := &memoryEventStore{backing: backing, encoder: MakeJSONEncoder()}
+	b := &memoryEventStore{backing: backing, encoder: MakeJSONEncoder()}
 
 	suite := NewSharedBackingSuite(ctx, a, b)
 
@@ -93,8 +93,8 @@ func TestSharedBackingDetectsBrokenStore(t *testing.T) {
 	ctx := context.Background()
 
 	backing := newMemoryBacking()
-	good := &memoryEventStore{backing: backing}
-	broken := &ignoresExpectedRevisionStore{inner: &memoryEventStore{backing: backing}}
+	good := &memoryEventStore{backing: backing, encoder: MakeJSONEncoder()}
+	broken := &ignoresExpectedRevisionStore{inner: &memoryEventStore{backing: backing, encoder: MakeJSONEncoder()}}
 
 	aggregateId := AggregateId{Type: "go-test", Key: "broken-store-guard"}
 
@@ -120,7 +120,7 @@ func TestSharedBackingDetectsBrokenStore(t *testing.T) {
 
 	// A correct store over the same backing rejects the same stale publish,
 	// confirming the scenario's assertion is the discriminating check.
-	correct := &memoryEventStore{backing: backing}
+	correct := &memoryEventStore{backing: backing, encoder: MakeJSONEncoder()}
 	err = correct.Publish(ctx, aggregateId, Options(WithExpectedRevision(staleRevision)), StoreValidationEvent{TestStringValue: "stale-again"})
 	require.Equal(t, RevisionConflict, err,
 		"a correct store rejects the stale publish, so the scenario passes only for conforming stores")
