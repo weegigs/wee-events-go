@@ -113,6 +113,18 @@ Surfaced by the 01–05 work and its reviews; recorded for later, not yet schedu
   cascades into failures across unrelated tests sharing the client. Fix: reconnect or
   surface a typed connection-state error from `stores/kurrent` so callers can rebuild
   the client; until then a single drop is unrecoverable without process restart.
+  Investigated 2026-06-10 (client v1.2.0, the latest release): the client manages its
+  gRPC channel in a single state-machine goroutine; a transient `Unavailable` error
+  triggers rediscovery on the next call, but when discovery itself exhausts
+  `MaxDiscoverAttempts` the goroutine sets a one-way close flag and exits
+  (`kurrentdb/impl.go:240-247`), after which every operation returns
+  `ErrorCodeConnectionClosed` permanently. No API resets the flag or restarts the
+  goroutine — the only recovery is a new `kurrentdb.NewClient`. Configuration knobs
+  (`MaxDiscoverAttempts`, `DiscoveryInterval`, `GossipTimeout`, keepalive) widen the
+  tolerated outage window but cannot revive a closed client. `stores/kurrent` holds one
+  client per store instance with no rebuild path and does not classify
+  `ErrorCodeConnectionClosed`. Upstream issue tracker not checked (unauthenticated).
+  Decision pending between the two options above.
 
 ## Decisions
 
