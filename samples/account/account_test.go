@@ -56,7 +56,7 @@ func (s *memoryStore) Publish(_ context.Context, id es.AggregateId, options es.P
 
 	now := time.Now()
 	for _, evt := range events {
-		data, err := es.MarshalToData(evt)
+		data, err := es.MarshalToData(es.MakeJSONEncoder(), evt)
 		if err != nil {
 			return err
 		}

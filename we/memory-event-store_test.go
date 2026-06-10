@@ -76,7 +76,7 @@ func (b *memoryBacking) publish(id AggregateId, options PublishOptions, events [
 
 	recorded := make([]RecordedEvent, len(events))
 	for i, event := range events {
-		data, err := MarshalToData(event)
+		data, err := MarshalToData(MakeJSONEncoder(), event)
 		if err != nil {
 			return err
 		}

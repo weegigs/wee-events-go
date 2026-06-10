@@ -31,8 +31,9 @@ type Decoder interface {
 	Decode(data Data, value any) error
 }
 
-// JSONEncoder encodes payloads as application/json. It is the framework
-// default (CBOR-S3.R1) and produces bytes identical to the pre-codec path
+// JSONEncoder encodes payloads as application/json. There is no implicit
+// framework default (ADR-0007); JSON is the recommended choice for
+// cross-family interop and produces bytes identical to the pre-codec path
 // (CBOR-S3.R2).
 type JSONEncoder struct{}
 

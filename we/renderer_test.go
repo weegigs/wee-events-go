@@ -37,7 +37,7 @@ type credited struct {
 
 func recorded(t *testing.T, evt DomainEvent) RecordedEvent {
 	t.Helper()
-	data, err := MarshalToData(evt)
+	data, err := MarshalToData(MakeJSONEncoder(), evt)
 	require.NoError(t, err)
 	return RecordedEvent{
 		EventType: EventTypeOf(evt),

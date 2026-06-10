@@ -1,6 +1,7 @@
 package we
 
 import (
+	"errors"
 	"fmt"
 )
 
@@ -43,18 +44,18 @@ func UnknownEncoding(actual string) error {
 	}
 }
 
-// defaultEncoder is the framework's default event encoder. JSON is the default
-// so existing stores and Go/Rust interop are unaffected (CBOR-S3.R1; originally
-// ADR-0001, superseded by ADR-0007 — Feature 08 removes this implicit default).
-var defaultEncoder Encoder = MakeJSONEncoder()
-
 // defaultDecoders dispatches by the envelope's encoding across the built-in
 // JSON and CBOR decoders (CBOR-S2).
 var defaultDecoders = MakeDecoders(MakeJSONDecoder(), MakeCBORDecoder())
 
-// MarshalToData encodes event with the default (JSON) encoder (CBOR-S3.R1).
-func MarshalToData(event any) (Data, error) {
-	return defaultEncoder.Encode(event)
+// MarshalToData encodes event with the supplied encoder (ENCODING-S1.R1,
+// ADR-0007). There is no default encoder: every encoding in effect was named
+// by a caller, at store construction or per publish.
+func MarshalToData(encoder Encoder, event any) (Data, error) {
+	if encoder == nil {
+		return Data{}, errors.New("we: encoder must not be nil")
+	}
+	return encoder.Encode(event)
 }
 
 // UnmarshalFromData decodes a Data envelope by selecting a decoder for its

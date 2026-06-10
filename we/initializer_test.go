@@ -24,7 +24,7 @@ func TestInitializerFunction(t *testing.T) {
 	})
 
 	t.Run("constructs state from a json-encoded genesis event", func(t *testing.T) {
-		data, err := MarshalToData(opened{Owner: "alice"})
+		data, err := MarshalToData(MakeJSONEncoder(), opened{Owner: "alice"})
 		require.NoError(t, err)
 		evt := RecordedEvent{EventType: EventTypeOf(opened{}), Data: data}
 

@@ -174,7 +174,7 @@ func maybeRevisionConflict(err error) error {
 }
 
 func (ds *DynamoEventStore) encodeEvent(event we.DomainEvent) (we.Data, error) {
-	return we.MarshalToData(event)
+	return we.MarshalToData(we.MakeJSONEncoder(), event)
 }
 
 func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (ChangeSet, error) {

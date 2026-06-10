@@ -431,7 +431,7 @@ type eventRow struct {
 func encodeEvents(options we.PublishOptions, events []we.DomainEvent) ([]eventRow, error) {
 	rows := make([]eventRow, len(events))
 	for i, event := range events {
-		data, err := we.MarshalToData(event)
+		data, err := we.MarshalToData(we.MakeJSONEncoder(), event)
 		if err != nil {
 			return nil, fmt.Errorf("sqlite: failed to encode event: %w", err)
 		}

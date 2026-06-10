@@ -52,7 +52,7 @@ func (s *memoryStore) Publish(_ context.Context, id we.AggregateId, _ we.Publish
 
 	existing := s.events[id]
 	for _, event := range events {
-		data, err := we.MarshalToData(event)
+		data, err := we.MarshalToData(we.MakeJSONEncoder(), event)
 		if err != nil {
 			return err
 		}

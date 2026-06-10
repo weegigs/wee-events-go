@@ -137,7 +137,7 @@ func (es *EventStore) Publish(ctx context.Context, aggregateId we.AggregateId, o
 }
 
 func encodeEvent(event we.DomainEvent) (we.Data, error) {
-	return we.MarshalToData(event)
+	return we.MarshalToData(we.MakeJSONEncoder(), event)
 }
 
 func (es *EventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {

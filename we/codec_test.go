@@ -195,12 +195,20 @@ func TestCodec(t *testing.T) {
 	t.Run("direct decoder rejects mismatched encoding", directDecoderRejectsMismatchedEncoding)
 }
 
-// CBOR-S3.R1 - the default encoder (used by MarshalToData) emits
-// application/json.
-func defaultEncoderEmitsJSON(t *testing.T) {
-	encoded, err := MarshalToData(codecPayload{Name: "widget", Count: 7})
+// ENCODING-S1.R1 - MarshalToData encodes with exactly the encoder it is given
+// and refuses a nil encoder.
+func marshalToDataRequiresExplicitEncoder(t *testing.T) {
+	encoded, err := MarshalToData(MakeJSONEncoder(), codecPayload{Name: "widget", Count: 7})
 	require.NoError(t, err)
 	assert.Equal(t, JSONEncoding, encoded.Encoding)
+
+	encoded, err = MarshalToData(MakeCBOREncoder(), codecPayload{Name: "widget", Count: 7})
+	require.NoError(t, err)
+	assert.Equal(t, CBOREncoding, encoded.Encoding)
+
+	_, err = MarshalToData(nil, codecPayload{Name: "widget", Count: 7})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "encoder must not be nil")
 }
 
 // CBOR-S2.R1, CBOR-S2.R3 - UnmarshalFromData dispatches by encoding and rejects
@@ -208,8 +216,8 @@ func defaultEncoderEmitsJSON(t *testing.T) {
 func unmarshalFromDataDispatchesAndRejects(t *testing.T) {
 	original := codecPayload{Name: "widget", Count: 7}
 
-	t.Run("decodes json default", func(t *testing.T) {
-		encoded, err := MarshalToData(original)
+	t.Run("decodes json", func(t *testing.T) {
+		encoded, err := MarshalToData(MakeJSONEncoder(), original)
 		require.NoError(t, err)
 		var decoded codecPayload
 		require.NoError(t, UnmarshalFromData(encoded, &decoded))
@@ -234,6 +242,6 @@ func unmarshalFromDataDispatchesAndRejects(t *testing.T) {
 }
 
 func TestDataMarshaller(t *testing.T) {
-	t.Run("default encoder emits application/json (CBOR-S3.R1)", defaultEncoderEmitsJSON)
+	t.Run("MarshalToData requires an explicit encoder (ENCODING-S1.R1)", marshalToDataRequiresExplicitEncoder)
 	t.Run("UnmarshalFromData dispatches and rejects (CBOR-S2.R1, CBOR-S2.R3)", unmarshalFromDataDispatchesAndRejects)
 }
