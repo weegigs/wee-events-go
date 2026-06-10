@@ -180,3 +180,44 @@ func TestCommandErrorClassification(t *testing.T) {
 	t.Run("unknown command maps to 400", commandNotFoundMapsTo400)
 	t.Run("encode failure maps to a static 5xx", encodeFailureMapsToStatic5xx)
 }
+
+// IDENTITY-S3.R5 / R6 — invalid path identity is rejected at the boundary
+// with a static 400; the entity service is never invoked. The POST cases
+// deliberately carry no body and no Content-Type: identity validation must
+// precede the media-type check, otherwise they would yield 415, not 400.
+func TestInvalidAggregateIdMapsTo400(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"GET with colon-bearing type", http.MethodGet, "/with:colon/key1"},
+		{"GET with space-bearing type", http.MethodGet, "/%20/key1"},
+		{"POST with colon-bearing type", http.MethodPost, "/with:colon/key1"},
+		{"POST with space-bearing type", http.MethodPost, "/%20/key1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := NewHandler[struct{}](invokeTrackingService{t: t})
+
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Equal(t, "invalid aggregate id\n", rec.Body.String())
+		})
+	}
+}
+
+// invokeTrackingService fails the test if any service method is reached.
+type invokeTrackingService struct{ t *testing.T }
+
+func (s invokeTrackingService) Load(context.Context, we.AggregateId) (we.Entity[struct{}], error) {
+	s.t.Fatal("Load must not be invoked for an invalid aggregate id")
+	return we.Entity[struct{}]{}, nil
+}
+
+func (s invokeTrackingService) Execute(context.Context, we.AggregateId, we.Command) (we.Entity[struct{}], error) {
+	s.t.Fatal("Execute must not be invoked for an invalid aggregate id")
+	return we.Entity[struct{}]{}, nil
+}

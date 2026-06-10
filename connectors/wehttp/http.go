@@ -113,12 +113,16 @@ func (service *httpService[T]) writeCommandError(w http.ResponseWriter, err erro
 
 func (service *httpService[T]) getResource() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		t := chi.URLParam(r, "type")
-		key := chi.URLParam(r, "key")
-
-		entity, err := service.controller.Load(r.Context(), we.AggregateId{Type: t, Key: key})
+		id, err := we.MakeAggregateId(chi.URLParam(r, "type"), chi.URLParam(r, "key"))
 		if err != nil {
-			service.log.Info().Err(err).Str("type", t).Str("key", key).Msg("failed to load resource")
+			service.log.Info().Err(err).Msg("rejected invalid aggregate id")
+			http.Error(w, "invalid aggregate id", http.StatusBadRequest)
+			return
+		}
+
+		entity, err := service.controller.Load(r.Context(), id)
+		if err != nil {
+			service.log.Info().Err(err).Str("type", id.Type).Str("key", id.Key).Msg("failed to load resource")
 			http.Error(w, "failed to load resource", http.StatusInternalServerError)
 			return
 		}
@@ -138,8 +142,12 @@ func (service *httpService[T]) getResource() http.HandlerFunc {
 
 func (service *httpService[T]) executeCommand() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		t := chi.URLParam(r, "type")
-		key := chi.URLParam(r, "key")
+		id, err := we.MakeAggregateId(chi.URLParam(r, "type"), chi.URLParam(r, "key"))
+		if err != nil {
+			service.log.Info().Err(err).Msg("rejected invalid aggregate id")
+			http.Error(w, "invalid aggregate id", http.StatusBadRequest)
+			return
+		}
 
 		contentType := r.Header.Get("Content-type")
 		mediaType, _, err := mime.ParseMediaType(contentType)
@@ -163,7 +171,7 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 
 		entity, err := service.controller.Execute(
 			r.Context(),
-			we.AggregateId{Type: t, Key: key},
+			id,
 			command,
 		)
 		if err != nil {
