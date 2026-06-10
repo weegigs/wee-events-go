@@ -50,17 +50,14 @@ every derived key is injective.* (Parse, don't validate — principle 3.)
   `AggregateId`.
 - **IDENTITY-S1.R3** (unwanted) — If `key` is empty, then `MakeAggregateId` shall return
   a `*we.InvalidAggregateIdError` with `Reason: "empty-key"` and a zero `AggregateId`.
-- **IDENTITY-S1.R4** (ubiquitous) — The parts shall be **legible, losslessly
-  encodable, and unambiguous**: `Type` is restricted to the RFC 3986 **unreserved**
-  characters (`A-Z a-z 0-9 - . _ ~`); `Key` to the unreserved characters **plus
-  `"|"`**, the composite-segment separator. Neither part may equal `"."` or `".."`
-  (URL dot-segments normalise away). The charsets are defined by **identity-domain
-  concerns alone** — legibility, lossless encodability, non-ambiguity — never by any
-  store's transport (stores adapt to the key space; IDENTITY-S4). They contain no
-  `":"` (the canonical form's single separator stays unique), no `"%"`
-  (percent-encoding can never be confused with literal content — encoding is lossless
-  by construction), no `"/"` or whitespace (invisible characters defeat legibility),
-  and no pattern metacharacters (`"*"`, `">"`), which read as matchers, not identity.
+- **IDENTITY-S1.R4** (ubiquitous) — The parts shall conform to the normative
+  grammar in [`documents/spec/aggregate-identity.md`](../spec/aggregate-identity.md)
+  (grammar v2, [ADR-0010](../adr/0010-identity-grammar.md)): types are
+  lowercase kebab tokens, letter-first, ≤ 64 octets; keys are pipe-joined
+  segments of `[A-Za-z0-9._@-]`, ≤ 512 octets, never `.` or `..` as a whole.
+  The grammar is defined by identity-domain concerns alone — legibility,
+  lossless encodability, non-ambiguity — never by any store's transport
+  (stores adapt to the key space; IDENTITY-S4).
 - **IDENTITY-S1.R5** (unwanted) — If `aggregateType` violates R4, then `MakeAggregateId`
   shall return `Reason: "invalid-type"`; if `key` violates R4, `Reason: "invalid-key"`
   — each with a zero `AggregateId`.
@@ -68,13 +65,16 @@ every derived key is injective.* (Parse, don't validate — principle 3.)
   `Type`, `Key`, and a `Reason` drawn from exactly the set `{"empty-type", "empty-key",
   "invalid-type", "invalid-key", "missing-separator"}` so callers can classify without
   string-matching messages.
-- **IDENTITY-S1.R7** (ubiquitous) — The Go invariants are deliberately **stricter than
-  Rust's parser** (whose `split_once` accepts colon-bearing keys): every Go-accepted
-  identity is Rust-valid; the reverse is not guaranteed. Aligning `wee-events.rs` to
-  the tightened charset is a recorded follow-up (roadmap).
-- **IDENTITY-S1.R8** (ubiquitous) — `"|"` is the documented convention for composite
-  keys (e.g. `kevin|card|boots`); the framework shall treat the key as opaque and
-  never parse, validate, or enforce segment structure. In strict URL contexts `"|"`
+- **IDENTITY-S1.R7** (ubiquitous) — All implementations bind to the shared
+  grammar through the conformance vector file
+  (`documents/spec/aggregate-identity.vectors.json`); per-implementation
+  status is tracked in the spec's conformance table. Until an implementation
+  aligns, identities it writes outside the grammar fail this parser loudly —
+  an error, never a transformation.
+- **IDENTITY-S1.R8** (ubiquitous) — `"|"` is the composite-key segment
+  separator, formalised in the grammar (segments non-empty, pipes interior
+  only); the framework shall treat segment content and count as opaque and
+  never parse or interpret them. In strict URL contexts `"|"`
   percent-encodes deterministically (`%7C`) and the HTTP edge decodes path parameters,
   so both spellings reach `MakeAggregateId` as the same identity.
 

@@ -459,9 +459,9 @@ func assertAscendingRevisions(t *testing.T, events []RecordedEvent) {
 
 // IdentityRoundTripsThroughStorage proves a backend stores and returns the
 // exact aggregate identity and payload for property-generated inputs across
-// the full charset grammar of both identity parts — generated types over the
-// RFC 3986 unreserved runes, generated keys additionally including the '|'
-// composite separator — and arbitrary unicode payload content
+// the full grammar of both identity parts (grammar v2,
+// documents/spec/aggregate-identity.md — kebab types; pipe-segmented keys)
+// and arbitrary unicode payload content
 // (IDENTITY-S4.R3, ADR-0009). This is the binding form of "stores adapt to
 // the key space" (IDENTITY-S4.R2): a backend that rejects, transforms,
 // truncates, or re-derives identity or payload fails here, whatever its

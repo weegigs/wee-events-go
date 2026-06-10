@@ -85,8 +85,10 @@ type EventStore struct {
 // tokens — or produce empty ones — and be rejected by the server. The
 // store-local encoding maps '.' to "%2E"; the mapping is deterministic and
 // injective because '%' lies outside the identity charset and therefore never
-// occurs in the canonical form. The remaining canonical runes (ALPHA, DIGIT,
-// '-', '_', '~', '|', and the ':' joiner) are all legal NATS token characters.
+// occurs in the canonical form. Only keys carry '.' under grammar v2 (types
+// are kebab); the remaining canonical runes (ALPHA, DIGIT, '-', '_', '@',
+// '|', and the ':' joiner) are all legal NATS token characters
+// (documents/spec/aggregate-identity.md).
 func subject(aggregateId we.AggregateId) string {
 	return prefix + strings.ReplaceAll(aggregateId.Encode().String(), ".", "%2E")
 }
