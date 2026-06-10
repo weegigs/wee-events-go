@@ -169,10 +169,6 @@ backend can silently merge two identities.*
 
 - Projection/document machinery itself (roadmap phase) — this feature only freezes the
   reference format that phase will consume.
-- Enforcing kebab-case on `Type` — it stays a documented convention within the
-  unreserved charset, as in Rust's `AggregateType`.
-- Aligning `wee-events.rs`'s parser to the tightened charset (recorded as a roadmap
-  follow-up; Go-accepted identities are already Rust-valid).
 - Unexported-field `AggregateId` with mandatory constructor (rejected in ADR-0010 —
   ripples through every literal construction site for marginal gain over boundary
   parsing).
@@ -182,7 +178,7 @@ backend can silently merge two identities.*
 | Requirement | Test |
 |---|---|
 | IDENTITY-S1.R1–R6 | Unit: table-driven `MakeAggregateId` cases — valid (full charsets, incl. composite `kevin\|card\|boots`), empty type/key, colon/space/percent in type and key, `\|` in type (rejected — key-only), `"."`/`".."` parts; assert `*InvalidAggregateIdError` with exact `Reason` via `errors.As` |
-| IDENTITY-S1.R7, S1.R8 | Documentation review (ADR-0010 + roadmap follow-up recorded; composite convention stated, no segment parsing anywhere) |
+| IDENTITY-S1.R7, S1.R8 | Conformance vector suites in Go (`we/identity-vectors_test.go`) and Rust (vendored verbatim copy); per-implementation status in the spec's conformance table; composite convention formalised in the grammar, no segment parsing anywhere |
 | IDENTITY-S2.R1, S2.R2 | Unit: `Encode` golden values; cross-checked against Rust `Display` fixtures (`counter:live-1`) |
 | IDENTITY-S2.R3 | `we/resource-encoder_test.go` asserts the canonical `$id` form (`"counter:a"`) in encoded responses — wehttp delegates to this pure encoder; werestate's integration test asserts `$id == "counter:live-1"` directly |
 | IDENTITY-S3.R1–R4 | Unit: decode error table (missing separator, empty parts, colon-bearing key → `invalid-key`); rapid property tests — grammar-generated round-trip + out-of-charset rejection (ADR-0009) |
