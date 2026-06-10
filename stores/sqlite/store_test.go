@@ -440,6 +440,27 @@ func TestCBORConstructorEncoderRoundTrip(t *testing.T) {
 	assert.Equal(t, event, decoded)
 }
 
+// SURFACE-S3.R1 — an undecodable event_id fails the load; it never yields a
+// RecordedEvent carrying an empty fabricated timestamp.
+func TestUndecodableEventIdFailsLoad(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore(t)
+	id := makeAggregateId()
+	require.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "good"}))
+
+	// 26 chars, satisfies the CHECK, not a ULID (I, L, O, U are invalid base32).
+	_, err := store.db.ExecContext(ctx, `
+INSERT INTO events
+    (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
+VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?);`,
+		"IIIIIIIIIIIIIIIIIIIIIIIIII", id.Type, id.Key, "bad", revisionForSequence(2).String(), "application/json", []byte("{}"))
+	require.NoError(t, err)
+
+	_, err = store.Load(ctx, id)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `invalid event id "IIIIIIIIIIIIIIIIIIIIIIIIII"`)
+}
+
 // ENCODING-S2.R5 — an explicit nil override errors and records nothing.
 func TestNilEncoderOverrideRejectedAtPublish(t *testing.T) {
 	ctx := context.Background()

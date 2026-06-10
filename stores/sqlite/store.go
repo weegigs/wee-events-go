@@ -229,14 +229,19 @@ ORDER BY revision ASC;`
 			return we.Aggregate{}, fmt.Errorf("sqlite: failed to scan event: %w", err)
 		}
 
+		// The revision is a sequence, not a ULID; the event_id ULID carries
+		// the creation time, so the timestamp is derived from it.
+		ts, err := timestampFromEventID(eventID)
+		if err != nil {
+			return we.Aggregate{}, err
+		}
+
 		events = append(events, we.RecordedEvent{
 			AggregateId: id,
 			EventID:     we.EventID(eventID),
 			Revision:    we.Revision(revision),
-			// The revision is a sequence, not a ULID; the event_id ULID carries
-			// the creation time, so the timestamp is derived from it.
-			Timestamp: timestampFromEventID(eventID),
-			EventType: we.EventType(eventType),
+			Timestamp:   ts,
+			EventType:   we.EventType(eventType),
 			Metadata: we.RecordedEventMetadata{
 				CausationId:   we.EventID(causationID.String),
 				CorrelationId: we.CorrelationID(correlationID.String),

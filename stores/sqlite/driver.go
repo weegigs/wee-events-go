@@ -43,15 +43,14 @@ func revisionForSequence(sequence uint64) we.Revision {
 }
 
 // timestampFromEventID derives a recorded event's timestamp from its ULID
-// event id, which encodes the creation time. An event id that is not a
-// parseable ULID yields the zero timestamp rather than panicking — the store
-// stays codec/identifier-agnostic on the read path.
-func timestampFromEventID(eventID string) we.Timestamp {
+// event id. An undecodable id is data corruption and fails the read — the
+// store never fabricates a timestamp (SURFACE-S3.R1).
+func timestampFromEventID(eventID string) (we.Timestamp, error) {
 	id, err := ulid.Parse(eventID)
 	if err != nil {
-		return we.Timestamp("")
+		return "", fmt.Errorf("sqlite: invalid event id %q: %w", eventID, err)
 	}
-	return we.TimestampFromTime(ulid.Time(id.Time()))
+	return we.TimestampFromTime(ulid.Time(id.Time())), nil
 }
 
 // sequenceForRevision decodes a hex revision back to its sequence number.
