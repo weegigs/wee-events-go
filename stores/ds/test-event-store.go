@@ -10,6 +10,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/weegigs/wee-events-go/we"
 )
 
 func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
@@ -64,10 +66,15 @@ func DynamoTestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
 		return nil, nil, err
 	}
 
-	store := NewEventStore(
+	// Test scaffolding names the recommended interop encoding (ENCODING-S2.R4).
+	store, err := NewEventStore(
 		client,
 		EventStoreTableName(*table.TableDescription.TableName),
+		we.MakeJSONEncoder(),
 	)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	return store, func() {
 		if err := ctr.Terminate(ctx); err != nil {

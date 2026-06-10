@@ -30,4 +30,10 @@ func createHandler(loader *we.EntityLoader[counter.Counter]) GatewayHandler {
 
 // TODO: add serializer
 
-var Live = wire.NewSet(createHandler, counter.Loader, ds.Live)
+// jsonEncoder names the handler's write encoding at the composition root
+// (ENCODING-S2.R4): JSON is the recommended interop choice.
+func jsonEncoder() we.Encoder {
+	return we.MakeJSONEncoder()
+}
+
+var Live = wire.NewSet(createHandler, counter.Loader, ds.Live, jsonEncoder)

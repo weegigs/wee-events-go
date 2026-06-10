@@ -3,6 +3,7 @@ package jetstream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -16,7 +17,17 @@ type EventStoreOption func(*EventStore)
 
 const prefix = "change-set."
 
-func NewEventStore(ctx context.Context, name string, connection *nats.Conn, options ...EventStoreOption) (*EventStore, error) {
+// NewEventStore builds a JetStream-backed event store. The encoder is the
+// store's explicit write encoding (ENCODING-S2.R1); nil is a construction
+// error, never a deferred nil-dereference at first publish (ENCODING-S2.R2).
+// The change-set message is a JSON transport: a non-JSON encoder constructs
+// successfully but fails every non-empty publish loudly at serialization —
+// end-to-end CBOR is scoped to BLOB-backed stores (ENCODING-S3.R2).
+func NewEventStore(ctx context.Context, name string, connection *nats.Conn, encoder we.Encoder, options ...EventStoreOption) (*EventStore, error) {
+	if encoder == nil {
+		return nil, errors.New("jetstream: encoder is required")
+	}
+
 	js, err := jetstream.New(connection)
 	if err != nil {
 		return nil, err
@@ -32,9 +43,10 @@ func NewEventStore(ctx context.Context, name string, connection *nats.Conn, opti
 	}
 
 	store := &EventStore{
-		name:   name,
-		js:     js,
-		stream: stream,
+		name:    name,
+		js:      js,
+		stream:  stream,
+		encoder: encoder,
 	}
 
 	for _, option := range options {
@@ -63,6 +75,7 @@ type EventStore struct {
 	clock      Clock
 	id         IDGenerator
 	marshaller Marshaller
+	encoder    we.Encoder
 }
 
 // subject derives the NATS subject for an aggregate from the canonical
@@ -83,13 +96,24 @@ func (es *EventStore) Publish(ctx context.Context, aggregateId we.AggregateId, o
 		// an empty changeset message would advance the subject's last sequence
 		// past the revision a Load reports, breaking every subsequent
 		// expected-revision publish with a spurious conflict.
+		// The no-op deliberately short-circuits BEFORE override validation: with
+		// zero events the nil encoder is never used and nothing can be
+		// mis-recorded, so an empty publish is a state, not an error.
 		return nil
+	}
+
+	// Resolve the publish encoder before encoding: an explicit per-publish
+	// override wins, and an explicit nil override is an error that records
+	// nothing (ENCODING-S2.R3, ENCODING-S2.R5).
+	encoder, err := options.EncoderFor(es.encoder)
+	if err != nil {
+		return fmt.Errorf("jetstream: %w", err)
 	}
 
 	records := make([]EventRecord, len(events))
 
 	for index, event := range events {
-		data, err := encodeEvent(event)
+		data, err := we.MarshalToData(encoder, event)
 		if err != nil {
 			return err
 		}
@@ -134,10 +158,6 @@ func (es *EventStore) Publish(ctx context.Context, aggregateId we.AggregateId, o
 	}
 
 	return nil
-}
-
-func encodeEvent(event we.DomainEvent) (we.Data, error) {
-	return we.MarshalToData(we.MakeJSONEncoder(), event)
 }
 
 func (es *EventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {

@@ -24,6 +24,7 @@ type DynamoEventStore struct {
 	db       *dynamodb.Client
 	table    string
 	revision *we.RevisionGenerator
+	encoder  we.Encoder
 }
 
 type EventStoreTableName string
@@ -32,8 +33,18 @@ func (name EventStoreTableName) String() string {
 	return string(name)
 }
 
-func NewEventStore(db *dynamodb.Client, table EventStoreTableName) *DynamoEventStore {
-	return &DynamoEventStore{db: db, table: string(table), revision: we.NewRevisionGenerator()}
+// NewEventStore builds a DynamoDB-backed event store. The encoder is the
+// store's explicit write encoding (ENCODING-S2.R1); nil is a construction
+// error, never a deferred nil-dereference at first publish (ENCODING-S2.R2).
+// The change-set record is a JSON transport: a non-JSON encoder constructs
+// successfully but fails every non-empty publish loudly at serialization —
+// end-to-end CBOR is scoped to BLOB-backed stores (ENCODING-S3.R2).
+func NewEventStore(db *dynamodb.Client, table EventStoreTableName, encoder we.Encoder) (*DynamoEventStore, error) {
+	if encoder == nil {
+		return nil, errors.New("ds: encoder is required")
+	}
+
+	return &DynamoEventStore{db: db, table: string(table), revision: we.NewRevisionGenerator(), encoder: encoder}, nil
 }
 
 func (ds *DynamoEventStore) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
@@ -173,11 +184,7 @@ func maybeRevisionConflict(err error) error {
 	return err
 }
 
-func (ds *DynamoEventStore) encodeEvent(event we.DomainEvent) (we.Data, error) {
-	return we.MarshalToData(we.MakeJSONEncoder(), event)
-}
-
-func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (ChangeSet, error) {
+func (ds *DynamoEventStore) makeChangeSet(encoder we.Encoder, aggregateId we.AggregateId, options we.PublishOptions, events []we.DomainEvent) (ChangeSet, error) {
 	now := time.Now()
 	timestamp := we.Timestamp(now.UTC().Format(we.RFC3339Milli))
 
@@ -186,7 +193,7 @@ func (ds *DynamoEventStore) makeChangeSet(aggregateId we.AggregateId, options we
 	for index, event := range events {
 
 		revision := ds.revision.NewRevision(now)
-		data, err := ds.encodeEvent(event)
+		data, err := we.MarshalToData(encoder, event)
 		if err != nil {
 			return ChangeSet{}, err
 		}
@@ -223,12 +230,23 @@ func (ds *DynamoEventStore) publish(ctx context.Context, aggregateId we.Aggregat
 	if len(events) == 0 {
 		// KAO - an empty publish is a no-op, not an error: "nothing to record" is a
 		// normal state outcome, not an infrastructure failure (CONFORMANCE-S3).
+		// The no-op deliberately short-circuits BEFORE override validation: with
+		// zero events the nil encoder is never used and nothing can be
+		// mis-recorded, so an empty publish is a state, not an error.
 		return nil
 	}
 
-	err := retry.Do(
+	// Resolve the publish encoder before encoding: an explicit per-publish
+	// override wins, and an explicit nil override is an error that records
+	// nothing (ENCODING-S2.R3, ENCODING-S2.R5).
+	encoder, err := options.EncoderFor(ds.encoder)
+	if err != nil {
+		return fmt.Errorf("ds: %w", err)
+	}
+
+	err = retry.Do(
 		func() error {
-			changes, err := ds.makeChangeSet(aggregateId, options, events)
+			changes, err := ds.makeChangeSet(encoder, aggregateId, options, events)
 			if err != nil {
 				return err
 			}

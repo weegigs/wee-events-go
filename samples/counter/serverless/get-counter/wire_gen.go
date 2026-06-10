@@ -24,7 +24,11 @@ func live(ctx context.Context) (GatewayHandler, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	dynamoEventStore := ds.NewEventStore(client, eventStoreTableName)
+	encoder := jsonEncoder()
+	dynamoEventStore, err := ds.NewEventStore(client, eventStoreTableName, encoder)
+	if err != nil {
+		return nil, nil, err
+	}
 	entityLoader := counter.Loader(dynamoEventStore)
 	v := createHandler(entityLoader)
 	return v, func() {

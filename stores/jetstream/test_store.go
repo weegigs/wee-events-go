@@ -7,6 +7,8 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	"github.com/weegigs/wee-events-go/we"
 )
 
 func NewTestStore(ctx context.Context, options ...EventStoreOption) (*EventStore, func(), error) {
@@ -37,7 +39,8 @@ func NewTestStore(ctx context.Context, options ...EventStoreOption) (*EventStore
 		return nil, nil, err
 	}
 
-	store, err := NewEventStore(ctx, "test", nc, options...)
+	// Test scaffolding names the recommended interop encoding (ENCODING-S2.R4).
+	store, err := NewEventStore(ctx, "test", nc, we.MakeJSONEncoder(), options...)
 	if err != nil {
 		return nil, nil, err
 	}

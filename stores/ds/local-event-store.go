@@ -11,9 +11,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
+
+	"github.com/weegigs/wee-events-go/we"
 )
 
-func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
+// LocalDynamoStore builds a store against a local DynamoDB endpoint. The
+// caller names the write encoding explicitly (ENCODING-S2.R1).
+func LocalDynamoStore(ctx context.Context, encoder we.Encoder) (*DynamoEventStore, error) {
 	const tableName = "wee-events"
 
 	cfg, err := localConfig(ctx)
@@ -36,12 +40,11 @@ func LocalDynamoStore(ctx context.Context) (*DynamoEventStore, error) {
 		}
 	}
 
-	store := NewEventStore(
+	return NewEventStore(
 		client,
 		EventStoreTableName("wee-events"),
+		encoder,
 	)
-
-	return store, nil
 }
 
 func localConfig(_ context.Context) (aws.Config, error) {

@@ -16,9 +16,16 @@ func NewCounterService(store we.EventStore, randomizer counter.Randomizer) Count
 	return we.NewEntityService(loader, &dispatcher)
 }
 
+// jsonEncoder names the service's write encoding at the composition root
+// (ENCODING-S2.R4): JSON is the recommended interop choice.
+func jsonEncoder() we.Encoder {
+	return we.MakeJSONEncoder()
+}
+
 var service = wire.NewSet(
 	counter.PseudoRandomizer,
 	NewCounterService,
+	jsonEncoder,
 )
 
 var Live = wire.NewSet(service, ds.Live)

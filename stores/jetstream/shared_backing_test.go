@@ -54,11 +54,11 @@ func TestSharedBacking(t *testing.T) {
 
 	// Two stores over the same connection and stream name share one backing; the
 	// stream is created idempotently via CreateOrUpdateStream.
-	a, err := NewEventStore(ctx, "shared", nc)
+	a, err := NewEventStore(ctx, "shared", nc, we.MakeJSONEncoder())
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := NewEventStore(ctx, "shared", nc)
+	b, err := NewEventStore(ctx, "shared", nc, we.MakeJSONEncoder())
 	if err != nil {
 		t.Fatal(err)
 	}
