@@ -1,6 +1,7 @@
 # ADR-0001 — JSON is the default event encoding
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0007](0007-explicit-event-encoding.md) — there is no
+  implicit default encoding; JSON survives as the explicit recommendation
 - **Relates to:** [features/01-cbor-codec.md](../features/01-cbor-codec.md) · [ADR-0002](0002-cbor-library-fxamacker.md)
 
 ## Context

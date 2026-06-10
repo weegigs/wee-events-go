@@ -23,6 +23,9 @@ unrepresentable within Go's limits.
 | [03](features/03-restate-integration.md) | Restate durable-execution connector | new `connectors/werestate/` | L | Done |
 | [04](features/04-storage-verification-tests.md) | Storage conformance test parity | `we/` + per-store tests | M | Done |
 | [05](features/05-rejection-error-taxonomy.md) | Structured rejection / error taxonomy | core `we/` + `wehttp` | M | Done |
+| [07](features/07-aggregate-identity.md) | Aggregate identity: canonical form + validated construction | core `we/` + stores + connectors | M | Ready |
+| [08](features/08-explicit-event-encoding.md) | Explicit event encoding (no implicit default) | core `we/` + stores + samples | M | Ready |
+| [09](features/09-error-surfacing.md) | Error surfacing: no fabricated values | core + stores + connectors + samples | M | Ready |
 
 Size is T-shirt complexity (XS/S/M/L/XL), not a time estimate.
 
@@ -53,6 +56,10 @@ an ADR for its key model before it could be scheduled.
   02 sqlite/turso store  ─┐
   03 restate connector   ─┤  independent — run in parallel
   04 conformance suite   ─┘
+
+  07 identity ──▶ 09 error surfacing   (both edit restate.go + http.go — sequence or co-own)
+  08 explicit encoding                 (independent of 07/09 at function level; shares
+                                        store files — coordinate merges)
 ```
 
 - **Docs 02, 03, 04 are independent** and parallel-safe; their primary files are
@@ -101,12 +108,14 @@ not edited). Current log:
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](adr/0001-default-event-encoding-json.md) | JSON is the default event encoding | Accepted |
+| [0001](adr/0001-default-event-encoding-json.md) | JSON is the default event encoding | Superseded by 0007 |
 | [0002](adr/0002-cbor-library-fxamacker.md) | Use `fxamacker/cbor/v2` for CBOR | Accepted |
 | [0003](adr/0003-sqlite-driver-libsql.md) | Use `go-libsql` for the SQLite/libSQL store | Accepted |
 | [0004](adr/0004-restate-go-sdk.md) | Use the Restate Go SDK; wire dispatch manually | Accepted |
 | [0005](adr/0005-rejection-error-modeling.md) | Model domain rejections via `error` + `errors.As` | Accepted |
 | [0006](adr/0006-lint-enforcement.md) | Enforce resource-lifecycle principles via golangci-lint | Accepted |
+| [0007](adr/0007-explicit-event-encoding.md) | Event encoding is an explicit constructor argument | Accepted |
+| [0008](adr/0008-aggregate-identity.md) | Aggregate identity: canonical `type:key` form and validated construction | Accepted |
 
 ## Reference
 

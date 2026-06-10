@@ -13,12 +13,14 @@ changes, supersede its ADR and the references still resolve.
 
 | # | Title | Status |
 |---|---|---|
-| [0001](0001-default-event-encoding-json.md) | JSON is the default event encoding | Accepted |
+| [0001](0001-default-event-encoding-json.md) | JSON is the default event encoding | Superseded by 0007 |
 | [0002](0002-cbor-library-fxamacker.md) | Use `fxamacker/cbor/v2` for CBOR | Accepted |
 | [0003](0003-sqlite-driver-libsql.md) | Use `go-libsql` for the SQLite/libSQL store | Accepted |
 | [0004](0004-restate-go-sdk.md) | Use the Restate Go SDK and wire dispatch manually | Accepted |
 | [0005](0005-rejection-error-modeling.md) | Model domain rejections via `error` + `errors.As` | Accepted |
 | [0006](0006-lint-enforcement.md) | Enforce resource-lifecycle principles via golangci-lint | Accepted |
+| [0007](0007-explicit-event-encoding.md) | Event encoding is an explicit constructor argument | Accepted |
+| [0008](0008-aggregate-identity.md) | Aggregate identity: canonical `type:key` form and validated construction | Accepted |
 
 ## Conventions
 
