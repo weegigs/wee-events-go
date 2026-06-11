@@ -26,6 +26,7 @@ changes, supersede its ADR and the references still resolve.
 | 0008 | Aggregate identity: canonical `type:key` form and validated construction | Superseded by 0010 — removed |
 | [0009](0009-property-based-testing-rapid.md) | Use `pgregory.net/rapid` for property-based conformance testing | Accepted |
 | [0010](0010-identity-grammar.md) | Aggregate identity grammar v2: kebab types, segmented keys, shared normative spec | Accepted |
+| [0011](0011-encoding-boundary.md) | Encoding boundary: presentation contract, verbatim round-trip, store-owned storage format | Accepted |
 
 ## Conventions
 
