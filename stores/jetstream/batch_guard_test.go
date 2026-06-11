@@ -60,7 +60,7 @@ func TestMaximumSizedChangesetPassesGuard(t *testing.T) {
 // can wrap and mint duplicate revisions. The guard fires after unmarshal and
 // before any metadata use, so a bare store with only a marshaller suffices.
 func TestOversizedStoredChangesetRejectedAtDecode(t *testing.T) {
-	store := &EventStore{marshaller: JSONMarshaller{}}
+	store := &EventStore{marshaller: CBORMarshaller{}}
 
 	oversized := ChangeSet{Events: make([]EventRecord, math.MaxUint16+2)} // 65537
 	data, err := store.marshaller.Marshal(oversized)

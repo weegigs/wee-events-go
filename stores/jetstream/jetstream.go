@@ -21,9 +21,10 @@ const prefix = "change-set."
 // NewEventStore builds a JetStream-backed event store. The encoder is the
 // store's explicit write encoding (ENCODING-S2.R1); nil is a construction
 // error, never a deferred nil-dereference at first publish (ENCODING-S2.R2).
-// The change-set message is a JSON transport: a non-JSON encoder constructs
-// successfully but fails every non-empty publish loudly at serialization —
-// end-to-end CBOR is scoped to BLOB-backed stores (ENCODING-S3.R2).
+// The change-set message is a CBOR envelope by default (CBORMarshaller, a
+// store-local storage layout per ADR-0011 decision 4) that carries payload
+// bytes opaquely, so every payload encoding round-trips end to end
+// (ENCODING-S3.R2).
 func NewEventStore(ctx context.Context, name string, connection *nats.Conn, encoder we.Encoder, options ...EventStoreOption) (*EventStore, error) {
 	if encoder == nil {
 		return nil, errors.New("jetstream: encoder is required")
@@ -63,7 +64,7 @@ func NewEventStore(ctx context.Context, name string, connection *nats.Conn, enco
 	}
 
 	if store.marshaller == nil {
-		store.marshaller = JSONMarshaller{}
+		store.marshaller = CBORMarshaller{}
 	}
 
 	return store, nil
