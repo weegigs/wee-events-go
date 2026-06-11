@@ -114,6 +114,17 @@ func (s *shard) publish(ctx context.Context, id we.AggregateId, options we.Publi
 	return err
 }
 
+// scan runs an arbitrary read on the owner goroutine; enumeration uses it.
+func (s *shard) scan(ctx context.Context, run func(ctx context.Context, db *sql.DB) ([]we.AggregateId, error)) ([]we.AggregateId, error) {
+	value, err := s.dispatch(ctx, func(ctx context.Context, db *sql.DB) (any, error) {
+		return run(ctx, db)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return value.([]we.AggregateId), nil
+}
+
 func (s *shard) stop() {
 	select {
 	case <-s.done:
