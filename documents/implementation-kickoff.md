@@ -145,7 +145,6 @@ From the `justfile` (run in a mise-activated shell):
 - `just test-integration` — Docker-backed store tests (KurrentDB, NATS); relevant once 02
   adds a containerised SQLite/Turso target.
 - `just build` — builds the sample server.
-- `just wire` — regenerate Wire DI if a worker changes provider sets.
 - `just fix` — Go 1.26 modernizers + gofmt; keep new code idiomatic (principles.md).
 
 ## Reporting

@@ -14,10 +14,6 @@ test:
 build:
     go build -o counter-server ./samples/counter/server
 
-# Regenerate Wire dependency-injection code (wire is a go.mod tool directive)
-wire:
-    go tool wire ./...
-
 # Lint
 lint:
     golangci-lint run

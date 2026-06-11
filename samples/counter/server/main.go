@@ -51,12 +51,11 @@ func main() {
 	}
 	defer tracingCleanup()
 
-	service, serviceCleanup, err := local(context.Background())
+	service, err := local(context.Background())
 	if err != nil {
 		log.Info().Err(err).Msg("failed to configure service")
 		os.Exit(1)
 	}
-	defer serviceCleanup()
 
 	r := chi.NewRouter()
 

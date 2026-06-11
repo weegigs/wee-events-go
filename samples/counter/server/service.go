@@ -1,7 +1,8 @@
 package main
 
 import (
-	"github.com/google/wire"
+	"context"
+
 	"github.com/weegigs/wee-events-go/samples/counter"
 	"github.com/weegigs/wee-events-go/stores/ds"
 	"github.com/weegigs/wee-events-go/we"
@@ -16,18 +17,14 @@ func NewCounterService(store we.EventStore, randomizer counter.Randomizer) Count
 	return we.NewEntityService(loader, &dispatcher)
 }
 
-// jsonEncoder names the service's write encoding at the composition root
-// (ENCODING-S2.R4): JSON is the recommended interop choice.
-func jsonEncoder() we.Encoder {
-	return we.MakeJSONEncoder()
+// local composes the service against a local DynamoDB endpoint. JSON names
+// the service's write encoding at the composition root (ENCODING-S2.R4):
+// it is the recommended interop choice.
+func local(ctx context.Context) (CounterService, error) {
+	store, err := ds.LocalDynamoStore(ctx, we.MakeJSONEncoder())
+	if err != nil {
+		return nil, err
+	}
+
+	return NewCounterService(store, counter.PseudoRandomizer()), nil
 }
-
-var service = wire.NewSet(
-	counter.PseudoRandomizer,
-	NewCounterService,
-	jsonEncoder,
-)
-
-var Live = wire.NewSet(service, ds.Live)
-
-var Local = wire.NewSet(service, ds.Local)

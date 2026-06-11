@@ -22,7 +22,7 @@ just test
 ```
 
 Tasks live in the `justfile`; run `just --list` for the full set (`build`,
-`wire`, `lint`, `fix`, `update-deps`, `test-integration`).
+`lint`, `fix`, `update-deps`, `test-integration`).
 
 ## Documentation
 

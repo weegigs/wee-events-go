@@ -9,28 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/aws/aws-sdk-go-v2/otelaws"
-
-	"github.com/google/wire"
-
-	"github.com/weegigs/wee-events-go/we"
-)
-
-var Live = wire.NewSet(
-	EventsTableNameFromEnvironment,
-	DefaultAWSConfig,
-	Client,
-	NewEventStore,
-	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
-)
-
-var Local = wire.NewSet(
-	LocalDynamoStore,
-	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
-)
-
-var Test = wire.NewSet(
-	TestStore,
-	wire.Bind(new(we.EventStore), new(*DynamoEventStore)),
 )
 
 func EventsTableNameFromEnvironment() (EventStoreTableName, error) {
@@ -40,14 +18,6 @@ func EventsTableNameFromEnvironment() (EventStoreTableName, error) {
 	}
 
 	return EventStoreTableName(table), nil
-}
-
-func LocalEventsTableName() EventStoreTableName {
-	return EventStoreTableName("wee-events")
-}
-
-func TestStore(ctx context.Context) (*DynamoEventStore, func(), error) {
-	return DynamoTestStore(ctx)
 }
 
 func DefaultAWSConfig(ctx context.Context) (aws.Config, error) {

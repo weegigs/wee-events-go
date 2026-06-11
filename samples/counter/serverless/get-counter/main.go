@@ -9,12 +9,11 @@ import (
 )
 
 func main() {
-	handler, cleanup, err := live(context.Background())
+	handler, err := live(context.Background())
 	if err != nil {
 		log.Info().Err(err).Msg("failed to initialise handler")
 		os.Exit(1)
 	}
-	defer cleanup()
 
 	lambda.Start(handler)
 }

@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/google/wire"
 	"github.com/weegigs/wee-events-go/samples/counter"
 	"github.com/weegigs/wee-events-go/stores/ds"
 	"github.com/weegigs/wee-events-go/we"
@@ -30,10 +29,24 @@ func createHandler(loader *we.EntityLoader[counter.Counter]) GatewayHandler {
 
 // TODO: add serializer
 
-// jsonEncoder names the handler's write encoding at the composition root
-// (ENCODING-S2.R4): JSON is the recommended interop choice.
-func jsonEncoder() we.Encoder {
-	return we.MakeJSONEncoder()
-}
+// live composes the handler against the ambient AWS environment. JSON names
+// the handler's write encoding at the composition root (ENCODING-S2.R4):
+// it is the recommended interop choice.
+func live(ctx context.Context) (GatewayHandler, error) {
+	cfg, err := ds.DefaultAWSConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-var Live = wire.NewSet(createHandler, counter.Loader, ds.Live, jsonEncoder)
+	table, err := ds.EventsTableNameFromEnvironment()
+	if err != nil {
+		return nil, err
+	}
+
+	store, err := ds.NewEventStore(ds.Client(cfg), table, we.MakeJSONEncoder())
+	if err != nil {
+		return nil, err
+	}
+
+	return createHandler(counter.Loader(store)), nil
+}
