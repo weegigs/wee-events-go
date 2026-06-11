@@ -181,13 +181,17 @@ func (s *Store) prepare(ctx context.Context) error {
 }
 
 func (s *Store) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
+	return loadEvents(ctx, s.db, id)
+}
+
+func loadEvents(ctx context.Context, db *sql.DB, id we.AggregateId) (we.Aggregate, error) {
 	const query = `
 SELECT event_id, event_type, revision, causation_id, correlation_id, encoding, data
 FROM events
 WHERE aggregate_type = ? AND aggregate_key = ?
 ORDER BY revision ASC;`
 
-	rows, err := s.db.QueryContext(ctx, query, id.Type, id.Key)
+	rows, err := db.QueryContext(ctx, query, id.Type, id.Key)
 	if err != nil {
 		return we.Aggregate{}, fmt.Errorf("sqlite: failed to load events: %w", err)
 	}
@@ -269,27 +273,11 @@ func (s *Store) Publish(ctx context.Context, id we.AggregateId, options we.Publi
 		return err
 	}
 
-	var lastErr error
-	for attempt := 0; attempt <= busyRetries; attempt++ {
-		err := s.publishOnce(ctx, id, options, rows)
-		if err == nil {
-			return nil
-		}
-		// A revision conflict is a terminal state, never retried (SQLITE-S2.R5).
-		if errors.Is(err, we.RevisionConflict) {
-			return err
-		}
-		if !isBusy(err) {
-			return err
-		}
-		lastErr = err
-	}
-
-	return lastErr
+	return publishRows(ctx, s.db, s.busyTimeout, id, options, rows)
 }
 
-func (s *Store) publishOnce(ctx context.Context, id we.AggregateId, options we.PublishOptions, rows []eventRow) (err error) {
-	conn, connErr := s.db.Conn(ctx)
+func publishOnce(ctx context.Context, db *sql.DB, busyTimeout time.Duration, id we.AggregateId, options we.PublishOptions, rows []eventRow) (err error) {
+	conn, connErr := db.Conn(ctx)
 	if connErr != nil {
 		return fmt.Errorf("sqlite: failed to acquire connection: %w", connErr)
 	}
@@ -298,7 +286,7 @@ func (s *Store) publishOnce(ctx context.Context, id we.AggregateId, options we.P
 	// busy_timeout is per-connection and the pool may hand out a connection
 	// that never had it set; without it BEGIN IMMEDIATE fails fast with
 	// SQLITE_BUSY instead of waiting out a concurrent writer.
-	if err := applyBusyTimeout(ctx, conn, s.busyTimeout); err != nil {
+	if err := applyBusyTimeout(ctx, conn, busyTimeout); err != nil {
 		return err
 	}
 
