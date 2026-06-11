@@ -64,7 +64,7 @@ func jsonEncoderPreservesPreFeatureBytes(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, JSONEncoding, encoded.Encoding)
-	assert.Equal(t, json.RawMessage(expected), encoded.Data)
+	assert.Equal(t, expected, encoded.Data)
 }
 
 // CBOR-S1.R3 - a value that cannot be CBOR-encoded yields a typed encode error

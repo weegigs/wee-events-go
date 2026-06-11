@@ -89,23 +89,22 @@ func TestEncoderResolution(t *testing.T) {
 	})
 
 	// ENCODING-S2.R3 — the per-publish override takes precedence over the
-	// constructor encoder. The JetStream change set is a JSON transport (the
-	// marshaller json.Marshal's the records), so honouring a CBOR override
-	// fails loudly and records nothing — end-to-end CBOR remains scoped to
-	// BLOB-backed stores (ENCODING-S3.R2). The loud failure is itself the
-	// precedence proof: the constructor's JSON encoder would have succeeded.
-	t.Run("cbor override takes precedence over the json constructor encoder", func(t *testing.T) {
+	// constructor encoder; with the envelope treating payload bytes as
+	// opaque, a CBOR override on a JSON-constructed store round-trips
+	// end-to-end.
+	t.Run("cbor override round-trips on the json constructor store", func(t *testing.T) {
 		id := makeEncodingAggregateId()
 
-		require.NoError(t, jsonStore.Publish(ctx, id, we.Options(), encodingTestEvent{Value: "json"}))
-
-		err := jsonStore.Publish(ctx, id, we.Options(we.WithEncoder(we.MakeCBOREncoder())), encodingTestEvent{Value: "cbor"})
-		require.Error(t, err)
+		require.NoError(t, jsonStore.Publish(ctx, id, we.Options(we.WithEncoder(we.MakeCBOREncoder())), encodingTestEvent{Value: "cbor"}))
 
 		loaded, err := jsonStore.Load(ctx, id)
 		require.NoError(t, err)
 		require.Len(t, loaded.Events, 1)
-		assert.Equal(t, we.JSONEncoding, loaded.Events[0].Data.Encoding)
+		assert.Equal(t, we.CBOREncoding, loaded.Events[0].Data.Encoding)
+
+		var decoded encodingTestEvent
+		require.NoError(t, we.MakeCBORDecoder().Decode(loaded.Events[0].Data, &decoded))
+		assert.Equal(t, "cbor", decoded.Value)
 	})
 
 	// ENCODING-S2.R3 (positive path) — a JSON override on a CBOR-constructed

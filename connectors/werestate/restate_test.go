@@ -163,6 +163,10 @@ func TestEnvelopeMatchesHTTPShape(t *testing.T) {
 	assert.EqualValues(t, "counter:increment", command.CommandName)
 	assert.Equal(t, "application/json", command.Payload.Encoding)
 
+	var increment counter.Increment
+	require.NoError(t, we.UnmarshalFromData(command.Payload, &increment))
+	assert.Equal(t, 4, increment.Amount)
+
 	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 	id := we.AggregateId{Type: "counter", Key: "env-1"}

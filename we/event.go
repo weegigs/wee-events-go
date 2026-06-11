@@ -1,7 +1,6 @@
 package we
 
 import (
-	"encoding/json"
 	"strings"
 )
 
@@ -24,9 +23,15 @@ func (id CorrelationID) String() string {
 }
 
 type Payload any
+
+// Data is the encoding-tagged payload envelope and the store-boundary
+// presentation contract: Encoding instructs the reader how to decode the
+// bytes presented in Data. Stores re-present these bytes verbatim with the
+// original tag; how a store lays them down at rest is store-local
+// (ADR-0011).
 type Data struct {
-	Encoding string          `json:"encoding"`
-	Data     json.RawMessage `json:"data"`
+	Encoding string `json:"encoding"`
+	Data     []byte `json:"data"`
 }
 
 type AggregateId struct {
