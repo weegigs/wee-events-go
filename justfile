@@ -36,3 +36,15 @@ update-deps:
 test-integration:
     docker compose -f local/docker-compose.yml up -d
     go test -v ./stores/...
+
+# Run event-store benchmarks for local stores (no Docker)
+bench filter='.':
+    go test -run '^$' -bench '{{filter}}' -benchmem -timeout 30m ./we ./stores/sqlite
+
+# Run event-store benchmarks for Docker-backed stores (testcontainers, requires Docker)
+bench-integration filter='.':
+    go test -run '^$' -bench '{{filter}}' -benchmem -timeout 120m ./stores/jetstream ./stores/kurrent ./stores/ds
+
+# Compare two benchmark result files (benchstat is a go.mod tool directive)
+bench-compare old new:
+    go tool benchstat {{old}} {{new}}
