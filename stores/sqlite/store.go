@@ -291,6 +291,13 @@ func SqldNamespaced(adminURL, dataURL, authToken string, strategy NamingStrategy
 	return Backend{strategy: strategy, catalog: newNamedTargetCatalog(strategy, provisioner)}
 }
 
+// Turso builds a backend that provisions one Turso platform database per
+// partition. Only naming strategies are legal.
+func Turso(config TursoConfig, strategy NamingStrategy) Backend {
+	provisioner := newTursoProvisioner(newHTTPTursoClient(config.APIToken), config)
+	return Backend{strategy: strategy, catalog: newNamedTargetCatalog(strategy, provisioner)}
+}
+
 func loadEvents(ctx context.Context, db *sql.DB, id we.AggregateId) (we.Aggregate, error) {
 	const query = `
 SELECT event_id, event_type, revision, causation_id, correlation_id, encoding, data
