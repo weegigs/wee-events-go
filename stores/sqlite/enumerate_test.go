@@ -44,6 +44,29 @@ func TestEnumerateByTypeNarrows(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "order", got[0].Type)
+	assert.Equal(t, "1", got[0].Key)
+}
+
+func TestEnumerateByTypeNarrowsScanAllStrategy(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), Local(t.TempDir(), Hashed(4)))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	for _, id := range []we.AggregateId{
+		{Type: "order", Key: "1"},
+		{Type: "order", Key: "2"},
+		{Type: "user", Key: "kevin"},
+	} {
+		require.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "x"}))
+	}
+
+	got, err := store.EnumerateAggregatesByType(ctx, "order")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	for _, id := range got {
+		assert.Equal(t, "order", id.Type)
+	}
 }
 
 func TestEnumerateByAggregateUsesDirect(t *testing.T) {

@@ -33,8 +33,12 @@ func (s *Store) EnumerateAggregatesByType(ctx context.Context, aggregateType str
 				return Skip()
 			}
 			return plan
+		case readScanAll:
+			// ScanAll partitions (Global, Hashed, PartitionBy) hold mixed types; narrow
+			// to the requested type at the SQL level so the scan returns only it.
+			return ScanType(aggregateType)
 		default:
-			return plan
+			return plan // readSkip stays a skip
 		}
 	})
 }
@@ -110,7 +114,7 @@ func (s *Store) allKnownPartitions(ctx context.Context) ([]Partition, error) {
 // ScanType narrowing.
 func scanAggregates(ctx context.Context, db *sql.DB, plan ReadPlan) ([]we.AggregateId, error) {
 	query := `SELECT DISTINCT aggregate_type, aggregate_key FROM events`
-	args := []any{}
+	var args []any
 	if plan.kind == readScanType {
 		query += ` WHERE aggregate_type = ?`
 		args = append(args, plan.aggregateType)
