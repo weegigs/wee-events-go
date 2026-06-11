@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/fxamacker/cbor/v2"
@@ -606,6 +607,91 @@ func TestResponseWireNegotiation(t *testing.T) {
 	t.Run("rejection body negotiates the response wire", cborAcceptRendersRejectionBodyAsCBOR)
 	t.Run("rejection marshal failure maps to the static 500 in both media", rejectionMarshalFailureMapsToStatic5xx)
 	t.Run("encode failure under CBOR Accept maps to the static 500", cborAcceptEncodeFailureMapsToStatic5xx)
+}
+
+// paddedBumpCommand builds a JSON-wire RemoteCommand that is valid end to end
+// (counter:bump, amount 3) padded with an ignored payload field so the encoded
+// body is exactly size bytes. A test can therefore prove a request was refused
+// purely for its size, not for being malformed.
+func paddedBumpCommand(t *testing.T, size int) []byte {
+	t.Helper()
+
+	encode := func(pad int) []byte {
+		payload := struct {
+			Amount int    `json:"amount"`
+			Pad    string `json:"pad"`
+		}{Amount: 3, Pad: strings.Repeat("a", pad)}
+		data, err := json.Marshal(payload)
+		require.NoError(t, err)
+		body, err := json.Marshal(we.RemoteCommand{
+			CommandName: "counter:bump",
+			Payload:     we.Data{Encoding: we.JSONEncoding, Data: data},
+		})
+		require.NoError(t, err)
+		return body
+	}
+
+	overhead := len(encode(0))
+	require.GreaterOrEqual(t, size, overhead, "requested body size is smaller than the envelope overhead")
+	body := encode(size - overhead)
+	require.Len(t, body, size)
+	return body
+}
+
+// Roadmap "wehttp request bodies are unbounded" — a command body over the
+// default cap is refused at the wire edge with a static 413 before the body is
+// parsed; the entity service is never invoked. The body is a valid command, so
+// only the size cap can be refusing it.
+func oversizedCommandBodyMapsToStatic413(t *testing.T) {
+	handler := NewHandler[struct{}](invokeTrackingService{t: t})
+
+	rec := postWire(t, handler, "application/json", paddedBumpCommand(t, defaultMaxBodyBytes+1))
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+	assert.Equal(t, "request body too large\n", rec.Body.String())
+}
+
+// Companion bound check — a body exactly at the default cap passes the edge
+// guard, parses, and executes.
+func bodyAtCapStillExecutes(t *testing.T) {
+	service := &wireDecodingService{}
+	handler := NewHandler[counterState](service)
+
+	rec := postWire(t, handler, "application/json", paddedBumpCommand(t, defaultMaxBodyBytes))
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 3, service.state.Value, "an at-cap command must execute normally")
+}
+
+// MaxBodyBytes overrides the default cap per handler: a body over the
+// configured cap is refused with the static 413, one within it executes.
+func maxBodyBytesOptionOverridesDefault(t *testing.T) {
+	const capBytes = 256
+
+	t.Run("over the configured cap maps to 413", func(t *testing.T) {
+		handler := NewHandler[struct{}](invokeTrackingService{t: t}, MaxBodyBytes[struct{}](capBytes))
+
+		rec := postWire(t, handler, "application/json", paddedBumpCommand(t, capBytes+1))
+
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+		assert.Equal(t, "request body too large\n", rec.Body.String())
+	})
+
+	t.Run("within the configured cap executes", func(t *testing.T) {
+		service := &wireDecodingService{}
+		handler := NewHandler[counterState](service, MaxBodyBytes[counterState](capBytes))
+
+		rec := postWire(t, handler, "application/json", paddedBumpCommand(t, capBytes))
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, 3, service.state.Value)
+	})
+}
+
+func TestCommandBodySizeCap(t *testing.T) {
+	t.Run("oversized body maps to a static 413", oversizedCommandBodyMapsToStatic413)
+	t.Run("body at the default cap still executes", bodyAtCapStillExecutes)
+	t.Run("MaxBodyBytes overrides the default cap", maxBodyBytesOptionOverridesDefault)
 }
 
 // invokeTrackingService fails the test if any service method is reached; it

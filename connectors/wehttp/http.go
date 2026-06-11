@@ -68,11 +68,24 @@ func acceptsCBOR(r *http.Request) bool {
 	return false
 }
 
+// defaultMaxBodyBytes caps how much of a command request body the intake will
+// read. Commands are small envelopes — a command name plus an encoded payload,
+// typically well under a kilobyte — so 1 MiB is generous headroom while still
+// bounding what an unauthenticated client can make the server buffer.
+const defaultMaxBodyBytes = 1 << 20
+
 type HandlerOption[T any] func(service *httpService[T])
 
 func Logger[T any](log *zerolog.Logger) HandlerOption[T] {
 	return func(service *httpService[T]) {
 		service.log = log
+	}
+}
+
+// MaxBodyBytes overrides the default command-body cap (defaultMaxBodyBytes).
+func MaxBodyBytes[T any](n int64) HandlerOption[T] {
+	return func(service *httpService[T]) {
+		service.maxBodyBytes = n
 	}
 }
 
@@ -83,6 +96,9 @@ func NewHandler[T any](entityService we.EntityService[T], options ...HandlerOpti
 	}
 	if service.log == nil {
 		service.log = &log.Logger
+	}
+	if service.maxBodyBytes == 0 {
+		service.maxBodyBytes = defaultMaxBodyBytes
 	}
 
 	r := chi.NewRouter()
@@ -98,6 +114,8 @@ func NewHandler[T any](entityService we.EntityService[T], options ...HandlerOpti
 type httpService[T any] struct {
 	log        *zerolog.Logger
 	controller we.EntityService[T]
+	// maxBodyBytes bounds the command request body read off the wire.
+	maxBodyBytes int64
 	// encoder renders the resource per the negotiated response medium
 	// (ADR-0011 decision 5): Marshal for JSON, MarshalCBOR for CBOR.
 	encoder *we.ResourceEncoder[T]
@@ -240,8 +258,19 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 			return
 		}
 
-		body, err := io.ReadAll(r.Body)
+		// The cap is edge protection at the wire layer — the public edge of the
+		// connector. It bounds how many body bytes the intake will buffer and
+		// has nothing to do with payload encodings, which ride inside the
+		// envelope untouched. Exceeding it is a client fault: a static 413, not
+		// a server error.
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, service.maxBodyBytes))
 		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				service.log.Info().Err(err).Msg("rejected oversized command body")
+				http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return
 		}

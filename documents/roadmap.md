@@ -90,10 +90,6 @@ Surfaced during implementation work and its reviews; recorded for later, not yet
   `stores/ds` (`change-set.go`) decode their envelopes with the unhardened package-level
   `cbor.Unmarshal`. Fix: export one hardened CBOR decode entry from `we` and replace the
   wehttp duplicate and both stores' unhardened calls with it.
-- **wehttp request bodies are unbounded.** The command intake reads the request body with
-  `io.ReadAll` (`connectors/wehttp/http.go`) and no size limit — an unbounded read at the
-  public edge. Fix: wrap the body in `http.MaxBytesReader` with a configured cap before
-  reading.
 - **`restatedev/sdk-go` test harness vs `testcontainers-go` v0.42.** The SDK's own
   `github.com/restatedev/sdk-go/testing` helper (v0.24.0) does not compile against the repo's
   pinned `testcontainers-go` v0.42 (it calls the removed `nat.Port.Int()`; v0.42 returns
