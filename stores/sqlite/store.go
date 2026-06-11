@@ -215,10 +215,9 @@ func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*sha
 // writer holding the file's write lock. busy_timeout is additionally re-applied
 // per write transaction in publishOnce.
 //
-// Shards open lazily on first use, so two instances over one shared file can
-// open it concurrently. busy_timeout is set FIRST — before the WAL conversion —
-// because the conversion needs the file's write lock, and the second instance
-// must wait it out rather than fail fast with "database is locked".
+// busy_timeout is set FIRST so it is in force for everything that follows. The
+// WAL conversion is then retried explicitly: busy_timeout does NOT cover it
+// (see setWALJournalMode).
 func applyShardPragmas(ctx context.Context, db *sql.DB) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
@@ -228,7 +227,38 @@ func applyShardPragmas(ctx context.Context, db *sql.DB) error {
 	if err := applyBusyTimeout(ctx, conn, defaultBusyTimeout); err != nil {
 		return err
 	}
-	return applyPragmas(ctx, conn, defaultBusyTimeout)
+	return setWALJournalMode(ctx, conn)
+}
+
+// setWALJournalMode converts the database to WAL, retrying on the transient
+// "database is locked" that a concurrent first-time conversion by another
+// connection to the same file produces. Shards open lazily on first use, so two
+// instances over one fresh file race the conversion; the journal-mode change
+// needs a brief exclusive lock and returns SQLITE_BUSY WITHOUT invoking the
+// busy handler, so busy_timeout cannot absorb it. The conversion converges as
+// soon as one connection wins — thereafter the file is already WAL and the
+// pragma is an instant no-op for everyone else.
+func setWALJournalMode(ctx context.Context, conn *sql.Conn) error {
+	deadline := time.Now().Add(defaultBusyTimeout)
+	backoff := time.Millisecond
+	for {
+		var mode string
+		err := conn.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode)
+		if err == nil {
+			return nil
+		}
+		if !isBusy(err) || time.Now().After(deadline) {
+			return fmt.Errorf("sqlite: failed to set journal_mode: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < 100*time.Millisecond {
+			backoff *= 2
+		}
+	}
 }
 
 // Local builds a backend backed by local SQLite files under root. Global uses

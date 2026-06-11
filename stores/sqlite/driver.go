@@ -80,21 +80,6 @@ func redactToken(err error, token string) error {
 	return errors.New(scrubbed)
 }
 
-// applyPragmas sets the store-level PRAGMAs at construction. journal_mode and
-// busy_timeout return their resulting value, so they must run through QueryRow
-// rather than Exec (the go-libsql driver rejects an Exec that returns rows).
-// WAL is a database-level property persisted in the file header, so setting it
-// once covers every connection; it is a no-op for the in-memory target (which
-// reports "memory").
-func applyPragmas(ctx context.Context, conn *sql.Conn, busyTimeout time.Duration) error {
-	var journalMode string
-	if err := conn.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&journalMode); err != nil {
-		return fmt.Errorf("sqlite: failed to set journal_mode: %w", err)
-	}
-
-	return applyBusyTimeout(ctx, conn, busyTimeout)
-}
-
 // applyBusyTimeout sets busy_timeout on one connection. Unlike WAL it is a
 // per-connection SQLite setting, so every connection acquired from the
 // database/sql pool for writing must apply it itself — a pragma issued on one
