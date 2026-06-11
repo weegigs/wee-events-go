@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 
 	"github.com/fxamacker/cbor/v2"
@@ -408,6 +409,203 @@ func TestCommandWireFormats(t *testing.T) {
 	t.Run("CBOR wire carries a JSON-encoded payload (ADR-0011 decision 5)", cborWireCarriesJSONEncodedPayload)
 	t.Run("CBOR wire carries a CBOR-encoded payload natively (ADR-0011 decision 5)", cborWireCarriesCBOREncodedPayload)
 	t.Run("unsupported or malformed Content-Type maps to 415", unsupportedWireMapsTo415)
+}
+
+// responseCBORDecMode decodes CBOR response bodies into JSON-equivalent Go
+// values (string-keyed maps via DefaultMapType) so a decoded CBOR body can be
+// compared directly against json.Unmarshal of the JSON wire rendering.
+var responseCBORDecMode = mustCBORDecMode(cbor.DecOptions{
+	DefaultMapType: reflect.TypeOf(map[string]any(nil)),
+})
+
+func decodeCBORValue(t *testing.T, body []byte) any {
+	t.Helper()
+	var value any
+	require.NoError(t, responseCBORDecMode.Unmarshal(body, &value))
+	return value
+}
+
+func decodeJSONValue(t *testing.T, body []byte) any {
+	t.Helper()
+	var value any
+	require.NoError(t, json.Unmarshal(body, &value))
+	return value
+}
+
+// getWithAccept performs a GET for /counter/a; an empty accept means the
+// Accept header is absent.
+func getWithAccept(t *testing.T, handler http.Handler, accept string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet, "/counter/a", nil)
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+// postCommandWithAccept mirrors postCommand with an explicit Accept header.
+func postCommandWithAccept(t *testing.T, handler http.Handler, accept string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	body, err := json.Marshal(we.RemoteCommand{
+		CommandName: "test:bump",
+		Payload:     we.Data{Encoding: we.JSONEncoding, Data: json.RawMessage(`{}`)},
+	})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost, "/counter/a", bytes.NewReader(body))
+	req.Header.Set("Content-type", "application/json")
+	req.Header.Set("Accept", accept)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+// Test matrix "CBOR response" (Task 14b′; ADR-0011 decision 5) — a GET with
+// Accept: application/cbor returns a CBOR body rendered from the same
+// resource map as the JSON rendering: value-equal content, CBOR Content-Type.
+func cborAcceptRendersGetResourceAsCBOR(t *testing.T) {
+	service := &wireDecodingService{state: counterState{Value: 7}}
+	handler := NewHandler[counterState](service)
+
+	baseline := getWithAccept(t, handler, "")
+	require.Equal(t, http.StatusOK, baseline.Code)
+	require.Equal(t, "application/json", baseline.Header().Get("Content-Type"))
+
+	rec := getWithAccept(t, handler, "application/cbor")
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/cbor", rec.Header().Get("Content-Type"))
+	assert.Equal(t, decodeJSONValue(t, baseline.Body.Bytes()), decodeCBORValue(t, rec.Body.Bytes()),
+		"the CBOR body must be value-equal to the JSON rendering ($id/$type/$revision + state fields)")
+}
+
+// Task 14b′ — a command response negotiates the same way: a JSON-wire POST
+// with Accept: application/cbor yields a CBOR resource body value-equal to the
+// JSON-wire baseline response.
+func cborAcceptRendersCommandResponseAsCBOR(t *testing.T) {
+	payload, err := we.MakeJSONEncoder().Encode(bump{Amount: 3})
+	require.NoError(t, err)
+
+	baseline := executeBumpOverJSONWire(t, payload)
+
+	body, err := json.Marshal(we.RemoteCommand{CommandName: "counter:bump", Payload: payload})
+	require.NoError(t, err)
+
+	service := &wireDecodingService{}
+	req := httptest.NewRequest(http.MethodPost, "/counter/a", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/cbor")
+	rec := httptest.NewRecorder()
+	NewHandler[counterState](service).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 3, service.state.Value, "the command must still execute")
+	assert.Equal(t, "application/cbor", rec.Header().Get("Content-Type"))
+	assert.Equal(t, decodeJSONValue(t, baseline.Body.Bytes()), decodeCBORValue(t, rec.Body.Bytes()))
+}
+
+// Task 14b′ — the Accept scan is a media-range scan for an exact
+// application/cbor item (q-values ignored); anything else keeps today's JSON
+// default unchanged.
+func responseWireNegotiationTable(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		accept   string
+		wantCBOR bool
+	}{
+		{"absent Accept stays JSON", "", false},
+		{"application/json stays JSON", "application/json", false},
+		{"*/* stays JSON", "*/*", false},
+		{"application/* wildcard stays JSON", "application/*", false},
+		{"unknown type stays JSON", "text/plain", false},
+		{"exact application/cbor selects CBOR", "application/cbor", true},
+		{"cbor among media ranges selects CBOR", "application/json, application/cbor", true},
+		{"q-value on cbor is ignored", "application/cbor;q=0.1", true},
+		{"malformed item is skipped and the scan continues", ";;;, application/cbor", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := &wireDecodingService{state: counterState{Value: 7}}
+			rec := getWithAccept(t, NewHandler[counterState](service), tc.accept)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			if tc.wantCBOR {
+				assert.Equal(t, "application/cbor", rec.Header().Get("Content-Type"))
+				return
+			}
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			var resource map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resource), "the default body must remain a JSON document")
+			assert.Equal(t, float64(7), resource["value"])
+		})
+	}
+}
+
+// Task 14b′ — the structured 422 rejection body is negotiated the same way:
+// Accept: application/cbor renders the rejection's code, message, and context
+// as a CBOR document value-equal to the JSON rendering.
+func cborAcceptRendersRejectionBodyAsCBOR(t *testing.T) {
+	rejection := we.MakeRejection("bump.refused", "cannot bump in this state", json.RawMessage(`{"value":7}`))
+	handler := NewHandler[struct{}](stubService{executeErr: rejection})
+
+	baseline := postCommand(t, handler)
+	require.Equal(t, http.StatusUnprocessableEntity, baseline.Code)
+
+	rec := postCommandWithAccept(t, handler, "application/cbor")
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.Equal(t, "application/cbor", rec.Header().Get("Content-Type"))
+	assert.Equal(t, decodeJSONValue(t, baseline.Body.Bytes()), decodeCBORValue(t, rec.Body.Bytes()),
+		"the CBOR rejection body must be value-equal to the JSON rendering")
+}
+
+// Failure companion for the rejection rendering — a rejection whose context
+// cannot be rendered (malformed JSON) maps to the static command-error 500
+// before any status is committed, in both response media: never a partial
+// 422, and no rejection or marshal-error detail reaches the body.
+func rejectionMarshalFailureMapsToStatic5xx(t *testing.T) {
+	rejection := we.MakeRejection("x", "y", json.RawMessage("{"))
+	handler := NewHandler[struct{}](stubService{executeErr: rejection})
+
+	t.Run("absent Accept renders the JSON path's static 500", func(t *testing.T) {
+		rec := postCommand(t, handler)
+
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		assert.Equal(t, "failed to execute command\n", rec.Body.String())
+	})
+
+	t.Run("Accept application/cbor renders the CBOR path's static 500", func(t *testing.T) {
+		rec := postCommandWithAccept(t, handler, "application/cbor")
+
+		assert.Equal(t, http.StatusInternalServerError, rec.Code)
+		assert.Equal(t, "failed to execute command\n", rec.Body.String())
+	})
+}
+
+// SURFACE-S4.R3 holds in both media — a resource that cannot be serialized
+// yields the static 500 before any status is committed, even when the client
+// asked for CBOR.
+func cborAcceptEncodeFailureMapsToStatic5xx(t *testing.T) {
+	handler := NewHandler[chan int](encodeFailStub{})
+
+	req := httptest.NewRequest(http.MethodGet, "/counter/a", nil)
+	req.Header.Set("Accept", "application/cbor")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, "failed to encode resource\n", rec.Body.String())
+}
+
+func TestResponseWireNegotiation(t *testing.T) {
+	t.Run("GET with Accept application/cbor renders CBOR (Task 14b′)", cborAcceptRendersGetResourceAsCBOR)
+	t.Run("command response with Accept application/cbor renders CBOR", cborAcceptRendersCommandResponseAsCBOR)
+	t.Run("Accept scan keeps JSON the default and finds exact cbor ranges", responseWireNegotiationTable)
+	t.Run("rejection body negotiates the response wire", cborAcceptRendersRejectionBodyAsCBOR)
+	t.Run("rejection marshal failure maps to the static 500 in both media", rejectionMarshalFailureMapsToStatic5xx)
+	t.Run("encode failure under CBOR Accept maps to the static 500", cborAcceptEncodeFailureMapsToStatic5xx)
 }
 
 // invokeTrackingService fails the test if any service method is reached; it

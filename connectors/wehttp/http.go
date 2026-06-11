@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strings"
 
 	"github.com/fxamacker/cbor/v2"
 	"github.com/rs/zerolog"
@@ -18,9 +19,10 @@ import (
 	"github.com/weegigs/wee-events-go/we"
 )
 
-// Command wire media types (ADR-0011 decision 5). These name the WIRE format —
-// how the RemoteCommand envelope is spelled on the request body — not the
-// payload's encoding tag, which rides inside the envelope untouched.
+// Wire media types (ADR-0011 decision 5). These name the WIRE format — how
+// the RemoteCommand envelope is spelled on the request body (Content-Type)
+// and how responses are rendered (Accept) — not the payload's encoding tag,
+// which rides inside the envelope untouched.
 const (
 	jsonWire = "application/json"
 	cborWire = "application/cbor"
@@ -42,6 +44,28 @@ func mustCBORDecMode(opts cbor.DecOptions) cbor.DecMode {
 		panic(err)
 	}
 	return mode
+}
+
+// acceptsCBOR scans the request's Accept media ranges for the CBOR wire.
+// This negotiates the response WIRE format at the edge (ADR-0011 decision 5):
+// responses are freshly rendered from the resource map in the negotiated
+// medium, never transcoded from JSON text. Documented simplification (Task
+// 14b′): each comma-separated item is parsed with mime.ParseMediaType, and an
+// item whose parsed media type is application/cbor (case-insensitive;
+// parameters, including q, are ignored) selects CBOR. Wildcard precedence is
+// not implemented and unparseable items are skipped, so an absent header,
+// */*, application/json, unknown, and malformed ranges all keep the JSON
+// default.
+func acceptsCBOR(r *http.Request) bool {
+	for _, header := range r.Header.Values("Accept") {
+		for item := range strings.SplitSeq(header, ",") {
+			mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(item))
+			if err == nil && mediaType == cborWire {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 type HandlerOption[T any] func(service *httpService[T])
@@ -74,7 +98,9 @@ func NewHandler[T any](entityService we.EntityService[T], options ...HandlerOpti
 type httpService[T any] struct {
 	log        *zerolog.Logger
 	controller we.EntityService[T]
-	encoder    we.EntityEncoder[T]
+	// encoder renders the resource per the negotiated response medium
+	// (ADR-0011 decision 5): Marshal for JSON, MarshalCBOR for CBOR.
+	encoder *we.ResourceEncoder[T]
 }
 
 // rejectionBody is the machine-readable payload returned for a domain rejection
@@ -85,9 +111,40 @@ type rejectionBody struct {
 	Context json.RawMessage `json:"context,omitempty"`
 }
 
+// marshalRejection renders the structured rejection body in the negotiated
+// response wire (ADR-0011 decision 5) and returns the body with its media
+// type. The CBOR rendering is built from the same structured values as the
+// JSON one: the rejection's JSON context is decoded to a value and rendered
+// natively — never embedded as opaque JSON text bytes.
+func marshalRejection(rejection we.Rejection, asCBOR bool) ([]byte, string, error) {
+	if !asCBOR {
+		body, err := json.Marshal(rejectionBody{
+			Code:    rejection.Code,
+			Message: rejection.Message,
+			Context: rejection.Context,
+		})
+		return body, jsonWire, err
+	}
+
+	resource := map[string]any{
+		"code":    rejection.Code,
+		"message": rejection.Message,
+	}
+	if len(rejection.Context) > 0 {
+		var context any
+		if err := json.Unmarshal(rejection.Context, &context); err != nil {
+			return nil, "", err
+		}
+		resource["context"] = context
+	}
+	body, err := cbor.Marshal(resource)
+	return body, cborWire, err
+}
+
 // writeCommandError classifies a command-path error at the edge (ADR-0005):
 //
-//   - a recovered we.Rejection is a domain refusal → 422 with a JSON body
+//   - a recovered we.Rejection is a domain refusal → 422 with a structured
+//     body in the Accept-negotiated response wire (ADR-0011 decision 5)
 //     carrying its code, message, and context (REJECT-S2.R1, REJECT-S2.R2);
 //   - a we.DecodeError is an inbound client error (bad request) → 400
 //     (REJECT-S3.R1, inbound decode);
@@ -96,23 +153,21 @@ type rejectionBody struct {
 //   - everything else — store, codec, we.RevisionConflict, unexpected — is an
 //     infrastructure fault → 500 and never a 4xx rejection body
 //     (REJECT-S2.R3, REJECT-S3.R1, REJECT-S3.R2).
-func (service *httpService[T]) writeCommandError(w http.ResponseWriter, err error) {
+func (service *httpService[T]) writeCommandError(w http.ResponseWriter, r *http.Request, err error) {
 	var rejection we.Rejection
 	if errors.As(err, &rejection) {
 		service.log.Info().Err(err).Str("code", rejection.Code).Msg("command rejected")
 		// Marshal before committing the status so a malformed Context cannot
 		// leave a 422 with an empty body — fall back to 500 if encoding fails.
-		body, marshalErr := json.Marshal(rejectionBody{
-			Code:    rejection.Code,
-			Message: rejection.Message,
-			Context: rejection.Context,
-		})
+		// The body is rendered in the Accept-negotiated wire; the plain-text
+		// http.Error paths below are not negotiated.
+		body, contentType, marshalErr := marshalRejection(rejection, acceptsCBOR(r))
 		if marshalErr != nil {
 			service.log.Info().Err(marshalErr).Msg("failed to encode rejection body")
 			http.Error(w, "failed to execute command", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", contentType)
 		w.WriteHeader(http.StatusUnprocessableEntity)
 		if _, writeErr := w.Write(body); writeErr != nil {
 			service.log.Info().Err(writeErr).Msg("failed to write rejection body")
@@ -159,7 +214,7 @@ func (service *httpService[T]) getResource() http.HandlerFunc {
 			return
 		}
 
-		service.writeResource(w, entity)
+		service.writeResource(w, r, entity)
 	}
 }
 
@@ -176,8 +231,8 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 		// decision 5): it selects how the RemoteCommand envelope is parsed off
 		// the body. CBOR is the encouraged wire — every payload encoding rides
 		// as native bytes — while the JSON wire uses we.Data's canonical JSON
-		// spelling. Responses remain JSON; response negotiation is a recorded
-		// follow-up.
+		// spelling. The response wire is negotiated independently via Accept
+		// (acceptsCBOR).
 		contentType := r.Header.Get("Content-type")
 		mediaType, _, err := mime.ParseMediaType(contentType)
 		if err != nil || (mediaType != jsonWire && mediaType != cborWire) {
@@ -210,7 +265,7 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 			command,
 		)
 		if err != nil {
-			service.writeCommandError(w, err)
+			service.writeCommandError(w, r, err)
 			return
 		}
 
@@ -219,21 +274,28 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 			return
 		}
 
-		service.writeResource(w, entity)
+		service.writeResource(w, r, entity)
 	}
 }
 
-// writeResource marshals the entity and commits the response. The status is
-// written exactly once, and only after marshalling succeeds: an encode
-// failure maps to a static 500 before anything is committed (SURFACE-S4.R3).
-func (service *httpService[T]) writeResource(w http.ResponseWriter, entity we.Entity[T]) {
-	body, err := service.encoder.Marshal(entity)
+// writeResource marshals the entity in the Accept-negotiated response wire
+// (ADR-0011 decision 5) and commits the response. The status is written
+// exactly once, and only after marshalling succeeds: an encode failure maps
+// to a static 500 before anything is committed, in both media
+// (SURFACE-S4.R3).
+func (service *httpService[T]) writeResource(w http.ResponseWriter, r *http.Request, entity we.Entity[T]) {
+	marshal, contentType := service.encoder.Marshal, jsonWire
+	if acceptsCBOR(r) {
+		marshal, contentType = service.encoder.MarshalCBOR, cborWire
+	}
+
+	body, err := marshal(entity)
 	if err != nil {
 		service.log.Info().Err(err).Msg("failed to encode resource")
 		http.Error(w, "failed to encode resource", http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(body); err != nil {
 		// The status is committed; a write failure is a dead client, not a
