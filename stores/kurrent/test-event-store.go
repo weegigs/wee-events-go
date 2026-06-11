@@ -74,17 +74,19 @@ func NewKurrentTestStore(ctx context.Context, encoder we.Encoder, options ...Eve
 		return nil, nil, err
 	}
 
-	client, err := kurrentdb.NewClient(settings)
+	store, err := NewEventStore(settings, encoder, options...)
 	if err != nil {
 		terminate()
 		return nil, nil, err
 	}
 
-	store, err := NewEventStore(client, encoder, options...)
-	if err != nil {
+	cleanup := func() {
+		// The store owns its client; release it before the container goes.
+		if err := store.Close(); err != nil {
+			panic(err)
+		}
 		terminate()
-		return nil, nil, err
 	}
 
-	return store, terminate, nil
+	return store, cleanup, nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weegigs/wee-events-go/we"
@@ -28,9 +29,12 @@ func TestEventStore(t *testing.T) {
 	})
 
 	t.Run("kurrentdb shared-backing validation", func(t *testing.T) {
-		// A second instance over the same KurrentDB client shares one backing.
-		second, err := NewEventStore(store.db, we.MakeJSONEncoder(), PageSize(5))
+		// A second instance over the same KurrentDB server (the store owns its
+		// client, so the second store gets its own client from the same
+		// settings) shares one backing.
+		second, err := NewEventStore(store.settings, we.MakeJSONEncoder(), PageSize(5))
 		require.NoError(t, err)
+		defer func() { require.NoError(t, second.Close()) }()
 		suite := we.NewSharedBackingSuite(ctx, store, second)
 		suite.Run(t)
 	})
@@ -58,8 +62,9 @@ func TestEventStore(t *testing.T) {
 	t.Run("CBOR constructor encoder round-trips", func(t *testing.T) {
 		// ENCODING-S2.R1 — a store constructed with the CBOR encoder publishes
 		// envelopes carrying application/cbor with verbatim payload bytes.
-		cborStore, err := NewEventStore(store.db, we.MakeCBOREncoder(), PageSize(5))
+		cborStore, err := NewEventStore(store.settings, we.MakeCBOREncoder(), PageSize(5))
 		require.NoError(t, err)
+		defer func() { require.NoError(t, cborStore.Close()) }()
 
 		id := we.AggregateId{Type: "test", Key: "cbor-constructor"}
 		event := TestEvent{Value: "cbor-constructor"}
@@ -118,6 +123,32 @@ func TestEventStore(t *testing.T) {
 		assert.Equal(t, we.Revision("0000000000000000000000000a"), aggregate.Revision)
 	})
 
+}
+
+// Close is terminal: an operation after Close sees the closed client's
+// ErrorCodeConnectionClosed and reaches the recovery path, which must refuse
+// with StoreClosed rather than rebuild a client nobody would close. No server
+// is needed — kurrentdb.NewClient does not dial eagerly, and the closed
+// client refuses pre-dispatch.
+func TestCloseIsTerminal(t *testing.T) {
+	ctx := context.Background()
+
+	settings, err := kurrentdb.ParseConnectionString("kurrentdb://localhost:2113?tls=false")
+	require.NoError(t, err)
+
+	store, err := NewEventStore(settings, we.MakeJSONEncoder())
+	require.NoError(t, err)
+
+	require.NoError(t, store.Close())
+	require.NoError(t, store.Close(), "a second Close is a no-op state, not an error")
+
+	id := we.AggregateId{Type: "test", Key: "closed-store"}
+
+	err = store.Publish(ctx, id, we.Options(), TestEvent{Value: "x"})
+	require.ErrorIs(t, err, StoreClosed, "publish after Close must fail with StoreClosed, not rebuild")
+
+	_, err = store.Load(ctx, id)
+	require.ErrorIs(t, err, StoreClosed, "load after Close must fail with StoreClosed, not rebuild")
 }
 
 // ENCODING-S2.R2 — a nil constructor encoder is an error, not a deferred panic.

@@ -20,10 +20,5 @@ func NewLocalKurrentStore(ctx context.Context, encoder we.Encoder, options ...Ev
 		return nil, err
 	}
 
-	client, err := kurrentdb.NewClient(settings)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewEventStore(client, encoder, options...)
+	return NewEventStore(settings, encoder, options...)
 }

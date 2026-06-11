@@ -95,9 +95,7 @@ Surfaced during implementation work and its reviews; recorded for later, not yet
   Feature 07 conformance soaks: a transient connection drop (`ErrorCodeConnectionClosed`)
   poisons every subsequent operation on the shared `kurrentdb.Client` for the remainder
   of the process — the store never re-dials. One dropped connection during a test run
-  cascades into failures across unrelated tests sharing the client. Fix: reconnect or
-  surface a typed connection-state error from `stores/kurrent` so callers can rebuild
-  the client; until then a single drop is unrecoverable without process restart.
+  cascades into failures across unrelated tests sharing the client.
   Investigated 2026-06-10 (client v1.2.0, the latest release): the client manages its
   gRPC channel in a single state-machine goroutine; a transient `Unavailable` error
   triggers rediscovery on the next call, but when discovery itself exhausts
@@ -106,10 +104,22 @@ Surfaced during implementation work and its reviews; recorded for later, not yet
   `ErrorCodeConnectionClosed` permanently. No API resets the flag or restarts the
   goroutine — the only recovery is a new `kurrentdb.NewClient`. Configuration knobs
   (`MaxDiscoverAttempts`, `DiscoveryInterval`, `GossipTimeout`, keepalive) widen the
-  tolerated outage window but cannot revive a closed client. `stores/kurrent` holds one
-  client per store instance with no rebuild path and does not classify
-  `ErrorCodeConnectionClosed`. Upstream issue tracker not checked (unauthenticated).
-  Decision pending between the two options above.
+  tolerated outage window but cannot revive a closed client. At the time
+  `stores/kurrent` held one client per store instance with no rebuild path and did not
+  classify `ErrorCodeConnectionClosed`. Upstream issue tracker not checked
+  (unauthenticated). Resolved 2026-06-11 with transparent in-store recovery:
+  `stores/kurrent` constructs and owns its client, retains the
+  `kurrentdb.Configuration`, classifies `ErrorCodeConnectionClosed`, and rebuilds a
+  fresh client (single-flight under a mutex; `Close` is terminal and refuses the
+  rebuild). The failed operation is retried exactly once when the retry is
+  duplicate-safe — reads, and appends carrying an exact stream expectation, where a
+  duplicate surfaces as `we.RevisionConflict`; blind appends (`Any{}`) are not retried
+  because the client can map a post-dispatch failure of a committed append to
+  `ErrorCodeConnectionClosed` (`impl.go:37-43`) — they return the original error and
+  succeed from the next call on the rebuilt client. A still-down server still surfaces
+  as an error. `TestStoreRecoversAfterServerOutage` (stop/restart choreography in
+  `stores/kurrent/reconnect_test.go`) pins the recovery; `TestCloseIsTerminal` pins
+  the closed-store refusal.
 
 ## Decisions
 

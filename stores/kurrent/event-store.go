@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"sync"
 
 	"github.com/kurrent-io/KurrentDB-Client-Go/kurrentdb"
+	"github.com/rs/zerolog/log"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -27,15 +29,31 @@ func PageSize(size int) EventStoreOption {
 	}
 }
 
-// NewEventStore wraps a KurrentDB client in a we.EventStore. The encoder is
-// the store's explicit write encoding (ENCODING-S2.R1); nil is a construction
-// error, never a deferred panic (ENCODING-S2.R2).
-func NewEventStore(client *kurrentdb.Client, encoder we.Encoder, options ...EventStoreOption) (*KurrentEventStore, error) {
+// NewEventStore builds a we.EventStore over KurrentDB. The store constructs
+// and owns its kurrentdb.Client: the v1.2.0 client poisons itself permanently
+// once rediscovery exhausts MaxDiscoverAttempts (the connection state-machine
+// goroutine sets a one-way close flag and exits, kurrentdb/impl.go:240-247;
+// see documents/roadmap.md), so the store retains the settings to rebuild a
+// fresh client transparently when that happens. The retained Configuration
+// is owned by the store from this point on: callers must not mutate it after
+// construction. The encoder is the store's explicit write encoding
+// (ENCODING-S2.R1); nil is a construction error, never a deferred panic
+// (ENCODING-S2.R2).
+func NewEventStore(settings *kurrentdb.Configuration, encoder we.Encoder, options ...EventStoreOption) (*KurrentEventStore, error) {
 	if encoder == nil {
 		return nil, errors.New("kurrent: encoder is required")
 	}
+	if settings == nil {
+		return nil, errors.New("kurrent: settings are required")
+	}
+
+	client, err := kurrentdb.NewClient(settings)
+	if err != nil {
+		return nil, fmt.Errorf("kurrent: failed to create client: %w", err)
+	}
 
 	store := &KurrentEventStore{
+		settings: settings,
 		db:       client,
 		pageSize: defaultPageSize,
 		encoder:  encoder,
@@ -48,10 +66,89 @@ func NewEventStore(client *kurrentdb.Client, encoder we.Encoder, options ...Even
 	return store, nil
 }
 
+// StoreClosed reports an operation on a store after Close. Named in the
+// repo's sentinel style (we.RevisionConflict, we.NilEncoder).
+var StoreClosed = errors.New("kurrent: store is closed")
+
 type KurrentEventStore struct {
+	settings *kurrentdb.Configuration
+	mu       sync.RWMutex
 	db       *kurrentdb.Client
+	closed   bool
 	pageSize int
 	encoder  we.Encoder
+}
+
+// Close releases the store's current client. The store constructs its own
+// clients, so closing the store is the only way callers release the
+// underlying gRPC channel. Close is TERMINAL: it marks the store closed so
+// the recovery path cannot resurrect it — an operation racing or following
+// Close sees the client's ErrorCodeConnectionClosed, reaches rebuild, and is
+// refused with StoreClosed instead of swapping in a client nobody would
+// close. A second Close is a no-op state, not an error.
+func (es *KurrentEventStore) Close() error {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+	if es.closed {
+		return nil
+	}
+	es.closed = true
+	return es.db.Close()
+}
+
+// client returns the current client under the read lock so operations never
+// observe a half-swapped rebuild.
+func (es *KurrentEventStore) client() *kurrentdb.Client {
+	es.mu.RLock()
+	defer es.mu.RUnlock()
+	return es.db
+}
+
+// connectionClosed classifies the kurrentdb client's permanent poison state:
+// once rediscovery exhausts MaxDiscoverAttempts the client returns
+// ErrorCodeConnectionClosed from every operation, forever.
+func connectionClosed(err error) bool {
+	var kErr *kurrentdb.Error
+	return errors.As(err, &kErr) && kErr.Code() == kurrentdb.ErrorCodeConnectionClosed
+}
+
+// rebuild swaps a fresh client in for a poisoned one. The kurrentdb v1.2.0
+// client has no reset API — kurrentdb.NewClient is the only recovery (see
+// documents/roadmap.md) — so the store rebuilds from its retained settings.
+// Single-flight under concurrency: rebuild only happens when the current
+// client is still the one the caller saw fail; a goroutine arriving after
+// another already swapped reuses the new client instead of rebuilding again.
+func (es *KurrentEventStore) rebuild(failed *kurrentdb.Client) (*kurrentdb.Client, error) {
+	es.mu.Lock()
+	defer es.mu.Unlock()
+
+	if es.closed {
+		// Close is terminal: a closed store's client fails with
+		// ErrorCodeConnectionClosed and lands here, but rebuilding would
+		// resurrect the store with a client nobody will close.
+		return nil, StoreClosed
+	}
+
+	if es.db != failed {
+		return es.db, nil
+	}
+
+	fresh, err := kurrentdb.NewClient(es.settings)
+	if err != nil {
+		// The poisoned client stays in place: the next operation will fail
+		// with ErrorCodeConnectionClosed and attempt the rebuild again.
+		return nil, fmt.Errorf("failed to rebuild kurrentdb client: %w", err)
+	}
+
+	// Best-effort release of the poisoned client before discarding it; its
+	// state machine has already exited, so a close error is expected noise,
+	// not a reason to fail the operation.
+	if cerr := failed.Close(); cerr != nil {
+		log.Debug().Err(cerr).Msg("kurrent: closing poisoned client")
+	}
+
+	es.db = fresh
+	return fresh, nil
 }
 
 func (es *KurrentEventStore) Publish(ctx context.Context, aggregateId we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
@@ -147,7 +244,35 @@ func (es *KurrentEventStore) Publish(ctx context.Context, aggregateId we.Aggrega
 		StreamState: state,
 	}
 
-	_, err = es.db.AppendToStream(ctx, streamId, appendOptions, esevents...)
+	client := es.client()
+	_, err = client.AppendToStream(ctx, streamId, appendOptions, esevents...)
+	if connectionClosed(err) {
+		// The client has poisoned itself permanently (one-way close flag, no
+		// reset API — documents/roadmap.md); rebuild so the store heals even
+		// when the append below is not retried.
+		fresh, rerr := es.rebuild(client)
+		if rerr != nil {
+			return rerr
+		}
+		// Retry ONLY when the append names an exact stream expectation
+		// (NoStream or a specific revision). ErrorCodeConnectionClosed is not
+		// always pre-dispatch: in the poisoned steady state
+		// getConnectionHandle refuses before the request leaves the process
+		// (kurrentdb v1.2.0 impl.go:104-110), but handleError
+		// (impl.go:37-43) also maps a POST-dispatch RPC failure to
+		// ErrorCodeConnectionClosed when the close flag is set concurrently —
+		// so the first append may have committed with only its response lost.
+		// Under an exact expectation a duplicate retry surfaces as
+		// WrongExpectedVersion and is returned as we.RevisionConflict below:
+		// an honest, caller-visible error, never a silent duplicate. Under
+		// Any{} a duplicate retry would succeed silently, so the original
+		// error is returned instead and the NEXT call succeeds on the rebuilt
+		// client. A failed retry is returned as-is: recovery must never mask
+		// a still-down server.
+		if _, blind := state.(kurrentdb.Any); !blind {
+			_, err = fresh.AppendToStream(ctx, streamId, appendOptions, esevents...)
+		}
+	}
 	if err != nil {
 		var kErr *kurrentdb.Error
 		if errors.As(err, &kErr) && kErr.Code() == kurrentdb.ErrorCodeWrongExpectedVersion {
@@ -191,7 +316,27 @@ func (es *KurrentEventStore) Load(ctx context.Context, id we.AggregateId) (we.Ag
 	}, nil
 }
 
+// read fetches one page, recovering from a poisoned client the same way the
+// write path does: the client poisons itself permanently once rediscovery
+// exhausts MaxDiscoverAttempts (documents/roadmap.md), so the page is retried
+// exactly once on a rebuilt client. Retrying the whole page is safe — reads
+// are idempotent. A second failure is returned as-is.
 func (es *KurrentEventStore) read(ctx context.Context, aggregate we.AggregateId, from kurrentdb.StreamPosition) ([]we.RecordedEvent, kurrentdb.StreamPosition, error) {
+	client := es.client()
+	events, last, err := es.readPage(ctx, client, aggregate, from)
+	if !connectionClosed(err) {
+		return events, last, err
+	}
+
+	fresh, rerr := es.rebuild(client)
+	if rerr != nil {
+		return nil, kurrentdb.End{}, rerr
+	}
+
+	return es.readPage(ctx, fresh, aggregate, from)
+}
+
+func (es *KurrentEventStore) readPage(ctx context.Context, client *kurrentdb.Client, aggregate we.AggregateId, from kurrentdb.StreamPosition) ([]we.RecordedEvent, kurrentdb.StreamPosition, error) {
 	if revision, ok := from.(kurrentdb.StreamRevision); ok {
 		from = kurrentdb.StreamRevision{
 			Value: revision.Value + 1,
@@ -199,7 +344,7 @@ func (es *KurrentEventStore) read(ctx context.Context, aggregate we.AggregateId,
 	}
 
 	streamId := aggregate.Encode().String()
-	stream, err := es.db.ReadStream(
+	stream, err := client.ReadStream(
 		ctx, streamId, kurrentdb.ReadStreamOptions{
 			From: from,
 		}, uint64(es.pageSize),
