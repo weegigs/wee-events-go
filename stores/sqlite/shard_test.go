@@ -18,7 +18,9 @@ func newTestShard(t *testing.T) *shard {
 	require.NoError(t, err)
 	db.SetMaxOpenConns(1)
 	require.NoError(t, migrate(ctx, db))
-	sh := newShard(db, we.MakeJSONEncoder(), defaultBusyTimeout)
+	// The in-memory shard uses the embedded SQLite engine (not Hrana), so it runs
+	// the local-file write path including busy_timeout.
+	sh := newShard(db, we.MakeJSONEncoder(), defaultBusyTimeout, true)
 	t.Cleanup(sh.stop)
 	return sh
 }

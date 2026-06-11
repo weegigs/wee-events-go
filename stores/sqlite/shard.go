@@ -24,8 +24,12 @@ type shard struct {
 	db          *sql.DB
 	encoder     we.Encoder
 	busyTimeout time.Duration
-	requests    chan shardRequest
-	done        chan struct{}
+	// local is true for file-backed targets, where busy_timeout governs write
+	// contention. Remote (libsql/Hrana) targets set it false: the engine rejects
+	// PRAGMA busy_timeout and serialises writers server-side.
+	local    bool
+	requests chan shardRequest
+	done     chan struct{}
 }
 
 type shardRequest struct {
@@ -39,11 +43,12 @@ type shardResult struct {
 	err   error
 }
 
-func newShard(db *sql.DB, encoder we.Encoder, busyTimeout time.Duration) *shard {
+func newShard(db *sql.DB, encoder we.Encoder, busyTimeout time.Duration, local bool) *shard {
 	sh := &shard{
 		db:          db,
 		encoder:     encoder,
 		busyTimeout: busyTimeout,
+		local:       local,
 		requests:    make(chan shardRequest),
 		done:        make(chan struct{}),
 	}
@@ -109,7 +114,7 @@ func (s *shard) publish(ctx context.Context, id we.AggregateId, options we.Publi
 	}
 
 	_, err = s.dispatch(ctx, func(ctx context.Context, db *sql.DB) (any, error) {
-		return nil, publishRows(ctx, db, s.busyTimeout, id, options, rows)
+		return nil, publishRows(ctx, db, s.busyTimeout, s.local, id, options, rows)
 	})
 	return err
 }
@@ -136,10 +141,10 @@ func (s *shard) stop() {
 
 // publishRows runs the publish transaction with bounded busy retries. Revision
 // conflicts are terminal and never retried (SQLITE-S2.R5).
-func publishRows(ctx context.Context, db *sql.DB, busyTimeout time.Duration, id we.AggregateId, options we.PublishOptions, rows []eventRow) error {
+func publishRows(ctx context.Context, db *sql.DB, busyTimeout time.Duration, local bool, id we.AggregateId, options we.PublishOptions, rows []eventRow) error {
 	var lastErr error
 	for attempt := 0; attempt <= busyRetries; attempt++ {
-		err := publishOnce(ctx, db, busyTimeout, id, options, rows)
+		err := publishOnce(ctx, db, busyTimeout, local, id, options, rows)
 		if err == nil {
 			return nil
 		}

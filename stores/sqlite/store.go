@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -179,24 +181,40 @@ func (s *Store) openExisting(ctx context.Context, p Partition) (*shard, bool, er
 	return sh, true, nil
 }
 
-// openShard opens and migrates a target, applies the WAL pragma, records its
+// openShard opens and migrates a target, applies the shard pragmas, records its
 // partition name, and starts its owner goroutine.
 func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*shard, error) {
-	db, err := sql.Open(driverName, target.dsn)
+	dsn, err := targetDSN(target)
+	if err != nil {
+		return nil, redactToken(err, target.authToken)
+	}
+	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, redactToken(fmt.Errorf("sqlite: failed to open database: %w", err), target.authToken)
 	}
 	db.SetMaxOpenConns(1)
 
-	// Pragmas before migration: WAL is a file-level property and busy_timeout a
-	// per-connection one, and the CREATE TABLE statements in migrate are
-	// themselves writes. Without WAL + busy_timeout in force first, two
+	local := isLocalFileTarget(target.dsn)
+
+	// Pragmas before migration: for a local file WAL is a file-level property and
+	// busy_timeout a per-connection one, and the CREATE TABLE statements in migrate
+	// are themselves writes. Without WAL + busy_timeout in force first, two
 	// instances opening one shared file race their migrations into a raw
-	// "database is locked". SetMaxOpenConns(1) means the single pooled
-	// connection applyShardPragmas configures is the same one migrate reuses.
-	if err := applyShardPragmas(ctx, db); err != nil {
+	// "database is locked". SetMaxOpenConns(1) means the single pooled connection
+	// applyShardPragmas configures is the same one migrate reuses. Remote targets
+	// apply neither pragma (see applyShardPragmas).
+	if err := applyShardPragmas(ctx, db, target); err != nil {
 		_ = db.Close()
 		return nil, redactToken(err, target.authToken)
+	}
+	// A freshly provisioned remote database returns its hostname before its edge
+	// route is live, so the first statement (migrate) can briefly 502. Wait for
+	// the route on remote targets only; local files are routable immediately.
+	if !local {
+		if err := awaitRemoteReady(ctx, db); err != nil {
+			_ = db.Close()
+			return nil, redactToken(err, target.authToken)
+		}
 	}
 	if err := migrate(ctx, db); err != nil {
 		_ = db.Close()
@@ -206,28 +224,90 @@ func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*sha
 		_ = db.Close()
 		return nil, redactToken(err, target.authToken)
 	}
-	return newShard(db, s.encoder, defaultBusyTimeout), nil
+	return newShard(db, s.encoder, defaultBusyTimeout, local), nil
 }
 
-// applyShardPragmas applies the persistent WAL journal mode (and a baseline
-// busy_timeout) once on the shard's single connection. WAL is a file-level
-// property: setting it once lets cross-instance readers (Load) not block on a
-// writer holding the file's write lock. busy_timeout is additionally re-applied
-// per write transaction in publishOnce.
+// targetDSN returns the DSN a shard opens, attaching the auth token for remote
+// targets as the libsql query parameter the driver reads. Local file/memory
+// targets have no token and pass through unchanged.
+func targetDSN(target Target) (string, error) {
+	if target.authToken == "" {
+		return target.dsn, nil
+	}
+	u, err := url.Parse(target.dsn)
+	if err != nil {
+		return "", fmt.Errorf("sqlite: invalid target dsn: %w", err)
+	}
+	q := u.Query()
+	q.Set("authToken", target.authToken)
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+// applyShardPragmas applies the local-file connection pragmas — busy_timeout and
+// the persistent WAL journal mode — once on the shard's single connection.
 //
-// busy_timeout is set FIRST so it is in force for everything that follows. The
-// WAL conversion is then retried explicitly: busy_timeout does NOT cover it
-// (see setWALJournalMode).
-func applyShardPragmas(ctx context.Context, db *sql.DB) error {
+// Both are local-file concerns and are skipped for remote targets: the remote
+// libsql/Hrana engine (sqld/Turso) rejects PRAGMA busy_timeout outright
+// (SQL_PARSE_ERROR) and manages journaling and write contention server-side, so
+// neither pragma is applicable. busy_timeout is additionally re-applied per
+// write transaction in publishOnce — also only for local targets.
+//
+// For local targets busy_timeout is set FIRST so it is in force for everything
+// that follows. The WAL conversion is then retried explicitly: busy_timeout does
+// NOT cover it (see setWALJournalMode).
+func applyShardPragmas(ctx context.Context, db *sql.DB, target Target) error {
+	if !isLocalFileTarget(target.dsn) {
+		return nil
+	}
+
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("sqlite: failed to acquire connection: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
+
 	if err := applyBusyTimeout(ctx, conn, defaultBusyTimeout); err != nil {
 		return err
 	}
 	return setWALJournalMode(ctx, conn)
+}
+
+// isLocalFileTarget reports whether dsn names a local file database (the only
+// target where the client controls journal mode and busy_timeout).
+func isLocalFileTarget(dsn string) bool {
+	return strings.HasPrefix(dsn, "file:")
+}
+
+const remoteRouteTimeout = 30 * time.Second
+
+// awaitRemoteReady waits for a freshly provisioned remote database to become
+// routable. Turso returns a database's hostname before its edge route is live,
+// so the first statement can briefly fail with a "no route configured" 502;
+// only that transient is retried, bounded, so any real failure (auth, network)
+// surfaces immediately. sqld targets are routable immediately, so SELECT 1
+// succeeds on the first try and the wait is a no-op.
+func awaitRemoteReady(ctx context.Context, db *sql.DB) error {
+	deadline := time.Now().Add(remoteRouteTimeout)
+	backoff := 250 * time.Millisecond
+	for {
+		var one int
+		err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+		if err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "no route configured") || time.Now().After(deadline) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		if backoff < 2*time.Second {
+			backoff *= 2
+		}
+	}
 }
 
 // setWALJournalMode converts the database to WAL, retrying on the transient
@@ -365,20 +445,24 @@ ORDER BY revision ASC;`
 	}, nil
 }
 
-func publishOnce(ctx context.Context, db *sql.DB, busyTimeout time.Duration, id we.AggregateId, options we.PublishOptions, rows []eventRow) (err error) {
+func publishOnce(ctx context.Context, db *sql.DB, busyTimeout time.Duration, local bool, id we.AggregateId, options we.PublishOptions, rows []eventRow) (err error) {
 	conn, connErr := db.Conn(ctx)
 	if connErr != nil {
 		return fmt.Errorf("sqlite: failed to acquire connection: %w", connErr)
 	}
 	defer func() { _ = conn.Close() }()
 
-	// busy_timeout is per-connection. A shard pins one connection that already
-	// has it set, but two SEPARATE Store instances over the same file have
-	// independent pools and one cannot see the other's pragma; ensuring it per
-	// write transaction is what lets BEGIN IMMEDIATE wait out a concurrent
-	// cross-instance writer instead of failing fast with SQLITE_BUSY.
-	if err := applyBusyTimeout(ctx, conn, busyTimeout); err != nil {
-		return err
+	// busy_timeout is a per-connection local-file pragma. A shard pins one
+	// connection that already has it set, but two SEPARATE Store instances over
+	// the same file have independent pools and one cannot see the other's pragma;
+	// ensuring it per write transaction is what lets BEGIN IMMEDIATE wait out a
+	// concurrent cross-instance writer instead of failing fast with SQLITE_BUSY.
+	// Remote targets skip it: the Hrana engine rejects PRAGMA busy_timeout and
+	// serialises writers server-side.
+	if local {
+		if err := applyBusyTimeout(ctx, conn, busyTimeout); err != nil {
+			return err
+		}
 	}
 
 	// BEGIN IMMEDIATE takes the write lock up front, avoiding the read->write
