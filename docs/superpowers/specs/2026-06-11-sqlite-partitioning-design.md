@@ -161,7 +161,7 @@ Provisioner implementations:
   resolved by re-fetch; name/target cache; discovery via the platform API
   plus per-database metadata. The platform API client sits behind a small
   interface: a fake drives conformance tests; an env-guarded live test keyed
-  on `TURSO` (available in the mise context) exercises the real API.
+  on `TURSO_API_TOKEN` exercises the real API.
 
 Publish retains Rust's lazy-create recovery: on a namespace-missing error,
 re-ensure and retry, bounded at 30 attempts × 1 s, context-aware.
@@ -197,7 +197,7 @@ prunes), execute scans through the shard actors, dedupe, sort.
 | Unit (rapid) | strategy name round-trips over grammar v2 identity generators; FNV-1a pinned to Rust test vectors; base32 encode/decode; local-layout discovery rescans |
 | Conformance | validation suite per strategy×backend: local×{all five}, in-memory×global, sqld-default×global, sqld-namespaced×{type, aggregate, hashed, partitionBy} (testcontainers), Turso×named (fake provisioner); shared-backing suite on local layouts |
 | Concurrency | `-race` stress test (N goroutines, loads+publishes across shards) in `just test`; `just bench` must produce a fully populated SQLite-file column — zero `✗` — as the regression gate for the go-libsql defect |
-| Live Turso | one env-guarded test (skip without `TURSO`): provision a prefixed database, round-trip events, enumerate, delete |
+| Live Turso | one env-guarded test (skip unless the `TURSO_*` set below is present): provision a prefixed database, round-trip events, enumerate, delete |
 | Benchmarks | per-strategy entry points mirroring the Rust suite's instantiations (`BenchmarkSqliteLocalByType`, `BenchmarkSqliteLocalHashed`, …); results recorded in `documents/performance-benchmarks.md` in a follow-up collection |
 
 ## Documentation obligations
@@ -218,7 +218,15 @@ prunes), execute scans through the shard actors, dedupe, sort.
 - Restate effect routing, macro-equivalent codegen — tracked by the gap
   audit, separate efforts.
 
-## Open inputs
+## Live-test configuration
 
-- Turso org, group, and database-name prefix for the live test configuration
-  (the API token is `TURSO` in the mise environment).
+The mise environment provides the full Turso configuration; the live test
+reads it directly and skips when any variable is absent:
+
+| Variable | Role |
+|---|---|
+| `TURSO_ORG` | platform organisation |
+| `TURSO_GROUP` | replication group databases are created in |
+| `TURSO_DB_PREFIX` | database-name prefix (`{prefix}-{sanitized}`) |
+| `TURSO_API_TOKEN` | platform API authentication (create/list/delete) |
+| `TURSO_GROUP_TOKEN` | database access token for the provisioned shards |
