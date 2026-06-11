@@ -2,7 +2,6 @@ package ds
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/fxamacker/cbor/v2"
 
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -34,9 +34,10 @@ func (name EventStoreTableName) String() string {
 // NewEventStore builds a DynamoDB-backed event store. The encoder is the
 // store's explicit write encoding (ENCODING-S2.R1); nil is a construction
 // error, never a deferred nil-dereference at first publish (ENCODING-S2.R2).
-// The change-set record is a JSON transport: a non-JSON encoder constructs
-// successfully but fails every non-empty publish loudly at serialization —
-// end-to-end CBOR is scoped to BLOB-backed stores (ENCODING-S3.R2).
+// The change-set record is the store's storage encoding, below the
+// presentation contract (ADR-0011 decision 4): recorded events are CBOR
+// bytes in a native DynamoDB binary (B) attribute, and the envelope carries
+// every payload encoding verbatim under its tag.
 func NewEventStore(db *dynamodb.Client, table EventStoreTableName, encoder we.Encoder) (*DynamoEventStore, error) {
 	if encoder == nil {
 		return nil, errors.New("ds: encoder is required")
@@ -124,9 +125,9 @@ func (ds *DynamoEventStore) read(ctx context.Context, id we.AggregateId) ([]we.R
 
 		// KAO: this could be done in parallel
 		for _, record := range items {
-			var evts []we.RecordedEvent
-			if err := json.Unmarshal([]byte(record.Events), &evts); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal events: %w", err)
+			evts, err := record.RecordedEvents()
+			if err != nil {
+				return nil, err
 			}
 			events = append(events, evts...)
 		}
@@ -209,7 +210,7 @@ func (ds *DynamoEventStore) makeChangeSet(encoder we.Encoder, aggregateId we.Agg
 
 	last := recorded[len(events)-1].Revision
 
-	evts, err := json.Marshal(recorded)
+	evts, err := cbor.Marshal(recorded)
 	if err != nil {
 		return ChangeSet{}, err
 	}
@@ -217,7 +218,7 @@ func (ds *DynamoEventStore) makeChangeSet(encoder we.Encoder, aggregateId we.Agg
 	return ChangeSet{
 		PartitionKey: partitionKey(aggregateId),
 		SortKey:      sortKey(last),
-		Events:       string(evts),
+		Events:       evts,
 		Timestamp:    timestamp,
 		Revision:     last,
 	}, nil

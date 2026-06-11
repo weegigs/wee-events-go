@@ -2,13 +2,17 @@ package ds
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/fxamacker/cbor/v2"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -105,6 +109,50 @@ func TestDynamoDBStore(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, loaded.Events, 1)
 		assert.Equal(t, we.JSONEncoding, loaded.Events[0].Data.Encoding)
+	})
+
+	// ADR-0011 decision 4 — the storage encoding is store-chosen and optimal
+	// for the medium: recorded events live as CBOR bytes in a native DynamoDB
+	// binary (B) attribute, not a text envelope. Fetching the raw item pins
+	// the layout mechanically: a regression to a string/JSON envelope changes
+	// the attribute type or makes the bytes valid JSON.
+	t.Run("storage layout is a cbor binary attribute", func(t *testing.T) {
+		id := createId()
+
+		first := Tested{TestStringValue: "layout", TestIntValue: 7}
+		second := Tested{TestStringValue: "layout", TestIntValue: 8}
+		require.NoError(t, store.Publish(ctx, id, we.Options(), first, second))
+
+		out, err := store.db.Query(ctx, &dynamodb.QueryInput{
+			TableName:              aws.String(store.table),
+			KeyConditionExpression: aws.String("pk = :pk AND begins_with(sk, :prefix)"),
+			ExpressionAttributeValues: map[string]types.AttributeValue{
+				":pk":     &types.AttributeValueMemberS{Value: partitionKey(id)},
+				":prefix": &types.AttributeValueMemberS{Value: "change-set#"},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.Items, 1)
+
+		attr, ok := out.Items[0]["events"]
+		require.True(t, ok, "change-set item must carry an events attribute")
+
+		binary, ok := attr.(*types.AttributeValueMemberB)
+		require.True(t, ok, "events must be a binary (B) attribute, got %T", attr)
+		assert.False(t, json.Valid(binary.Value), "stored envelope bytes must not be valid JSON")
+
+		var recorded []we.RecordedEvent
+		require.NoError(t, cbor.Unmarshal(binary.Value, &recorded))
+		require.Len(t, recorded, 2)
+
+		for index, want := range []Tested{first, second} {
+			assert.Equal(t, id, recorded[index].AggregateId)
+			assert.Equal(t, we.EventTypeOf(want), recorded[index].EventType)
+
+			var decoded Tested
+			require.NoError(t, we.MakeJSONDecoder().Decode(recorded[index].Data, &decoded))
+			assert.Equal(t, want, decoded)
+		}
 	})
 
 	t.Run("removes details for entities", func(t *testing.T) {
