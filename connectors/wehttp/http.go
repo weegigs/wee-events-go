@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -16,6 +17,32 @@ import (
 
 	"github.com/weegigs/wee-events-go/we"
 )
+
+// Command wire media types (ADR-0011 decision 5). These name the WIRE format —
+// how the RemoteCommand envelope is spelled on the request body — not the
+// payload's encoding tag, which rides inside the envelope untouched.
+const (
+	jsonWire = "application/json"
+	cborWire = "application/cbor"
+)
+
+// commandCBORDecMode hardens CBOR decoding of untrusted request bodies,
+// mirroring the decode-path policy in we/codec.go: duplicate map keys are
+// rejected, indefinite-length items are forbidden, and nesting depth is
+// capped. The unhardened package-level cbor.Unmarshal is never used here.
+var commandCBORDecMode = mustCBORDecMode(cbor.DecOptions{
+	DupMapKey:       cbor.DupMapKeyEnforcedAPF,
+	IndefLength:     cbor.IndefLengthForbidden,
+	MaxNestedLevels: 16,
+})
+
+func mustCBORDecMode(opts cbor.DecOptions) cbor.DecMode {
+	mode, err := opts.DecMode()
+	if err != nil {
+		panic(err)
+	}
+	return mode
+}
 
 type HandlerOption[T any] func(service *httpService[T])
 
@@ -145,9 +172,15 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 			return
 		}
 
+		// This is the WIRE format, edge-negotiated via Content-Type (ADR-0011
+		// decision 5): it selects how the RemoteCommand envelope is parsed off
+		// the body. CBOR is the encouraged wire — every payload encoding rides
+		// as native bytes — while the JSON wire uses we.Data's canonical JSON
+		// spelling. Responses remain JSON; response negotiation is a recorded
+		// follow-up.
 		contentType := r.Header.Get("Content-type")
 		mediaType, _, err := mime.ParseMediaType(contentType)
-		if mediaType != "application/json" || err != nil {
+		if err != nil || (mediaType != jsonWire && mediaType != cborWire) {
 			http.Error(w, "unsupported content type", http.StatusUnsupportedMediaType)
 			return
 		}
@@ -159,7 +192,13 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 		}
 
 		var command we.RemoteCommand
-		if err := json.Unmarshal(body, &command); err != nil {
+		switch mediaType {
+		case jsonWire:
+			err = json.Unmarshal(body, &command)
+		case cborWire:
+			err = commandCBORDecMode.Unmarshal(body, &command)
+		}
+		if err != nil {
 			service.log.Info().Err(err).Msg("failed to unmarshal command")
 			http.Error(w, "invalid request body", http.StatusBadRequest)
 			return

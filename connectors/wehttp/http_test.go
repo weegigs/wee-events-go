@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/fxamacker/cbor/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -253,15 +254,173 @@ func (s loadableService) Execute(ctx context.Context, id we.AggregateId, _ we.Co
 	return s.Load(ctx, id)
 }
 
-// invokeTrackingService fails the test if any service method is reached.
+// counterState is the aggregate state used by the wire-format tests.
+type counterState struct {
+	Value int `json:"value"`
+}
+
+// bump is the command type carried in the wire-format tests' payloads.
+type bump struct {
+	Amount int `json:"amount"`
+}
+
+// wireDecodingService executes a remote command through the framework's own
+// payload decode path (we.CommandHandlerFunction.HandleRemoteCommand →
+// we.UnmarshalFromData, dispatched on the payload's encoding tag) and mutates
+// state, so a wire test proves the command decoded and executed end to end.
+type wireDecodingService struct {
+	state counterState
+}
+
+func (s *wireDecodingService) Load(context.Context, we.AggregateId) (we.Entity[counterState], error) {
+	state := s.state
+	return we.Entity[counterState]{
+		Aggregate: we.AggregateId{Type: "counter", Key: "a"},
+		Revision:  we.Revision("01HX0000000000000000000000"),
+		Type:      "counter",
+		State:     &state,
+	}, nil
+}
+
+func (s *wireDecodingService) Execute(ctx context.Context, id we.AggregateId, cmd we.Command) (we.Entity[counterState], error) {
+	remote, ok := cmd.(we.RemoteCommand)
+	if !ok {
+		return we.Entity[counterState]{}, errors.New("expected a remote command")
+	}
+
+	var handler we.CommandHandlerFunction[counterState, bump] = func(_ context.Context, cmd bump, _ we.Entity[counterState], _ we.EventPublisher) error {
+		s.state.Value += cmd.Amount
+		return nil
+	}
+
+	entity, err := s.Load(ctx, id)
+	if err != nil {
+		return we.Entity[counterState]{}, err
+	}
+	if err := handler.HandleRemoteCommand(ctx, remote, entity, nil); err != nil {
+		return we.Entity[counterState]{}, err
+	}
+
+	return s.Load(ctx, id)
+}
+
+// postWire posts body as a command with the given wire media type.
+func postWire(t *testing.T, handler http.Handler, contentType string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodPost, "/counter/a", bytes.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	return rec
+}
+
+// executeBumpOverJSONWire runs the JSON-wire equivalent of the CBOR-wire tests
+// against a fresh service, returning the recorder as the behavioural baseline.
+func executeBumpOverJSONWire(t *testing.T, payload we.Data) *httptest.ResponseRecorder {
+	t.Helper()
+
+	body, err := json.Marshal(we.RemoteCommand{CommandName: "counter:bump", Payload: payload})
+	require.NoError(t, err)
+
+	service := &wireDecodingService{}
+	rec := postWire(t, NewHandler[counterState](service), "application/json", body)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 3, service.state.Value)
+	return rec
+}
+
+// ADR-0011 decision 5 — the wire format is edge-negotiated and CBOR is the
+// encouraged wire. A POST with Content-Type: application/cbor whose body is a
+// CBOR-marshalled RemoteCommand carrying a JSON-encoded payload (the normal
+// case) executes exactly like the JSON-wire equivalent: same status, same
+// state change, same JSON response.
+func cborWireCarriesJSONEncodedPayload(t *testing.T) {
+	payload, err := we.MakeJSONEncoder().Encode(bump{Amount: 3})
+	require.NoError(t, err)
+
+	body, err := cbor.Marshal(we.RemoteCommand{CommandName: "counter:bump", Payload: payload})
+	require.NoError(t, err)
+
+	service := &wireDecodingService{}
+	rec := postWire(t, NewHandler[counterState](service), "application/cbor", body)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 3, service.state.Value, "the command must execute and change state")
+
+	baseline := executeBumpOverJSONWire(t, payload)
+	assert.Equal(t, baseline.Code, rec.Code)
+	assert.JSONEq(t, baseline.Body.String(), rec.Body.String(), "responses remain JSON regardless of the request wire")
+}
+
+// ADR-0011 decision 5 — the binary wire carries binary content natively end to
+// end: a CBOR-wire RemoteCommand whose payload is CBOR-encoded (tagged
+// application/cbor) decodes through the framework's tag-dispatched payload
+// decoder (we.UnmarshalFromData routes application/cbor to the CBOR decoder)
+// and executes exactly like the JSON-wire command carrying the same intent.
+func cborWireCarriesCBOREncodedPayload(t *testing.T) {
+	payload, err := we.MakeCBOREncoder().Encode(bump{Amount: 3})
+	require.NoError(t, err)
+	require.Equal(t, we.CBOREncoding, payload.Encoding)
+
+	body, err := cbor.Marshal(we.RemoteCommand{CommandName: "counter:bump", Payload: payload})
+	require.NoError(t, err)
+
+	service := &wireDecodingService{}
+	rec := postWire(t, NewHandler[counterState](service), "application/cbor", body)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, 3, service.state.Value, "the CBOR-tagged payload must decode and the command execute")
+
+	jsonPayload, err := we.MakeJSONEncoder().Encode(bump{Amount: 3})
+	require.NoError(t, err)
+	baseline := executeBumpOverJSONWire(t, jsonPayload)
+	assert.Equal(t, baseline.Code, rec.Code)
+	assert.JSONEq(t, baseline.Body.String(), rec.Body.String(), "responses remain JSON regardless of the request wire")
+}
+
+// ADR-0011 decision 5 — the wire is negotiated over the supported media types
+// only: an unsupported or malformed Content-Type is refused with a static 415
+// and the entity service is never invoked.
+func unsupportedWireMapsTo415(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		contentType string
+	}{
+		{"unsupported media type", "text/plain"},
+		{"malformed Content-Type header", ";;;"},
+		{"absent Content-Type header", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := NewHandler[struct{}](invokeTrackingService{t: t})
+
+			rec := postWire(t, handler, tc.contentType, []byte(`{}`))
+
+			assert.Equal(t, http.StatusUnsupportedMediaType, rec.Code)
+			assert.Equal(t, "unsupported content type\n", rec.Body.String())
+		})
+	}
+}
+
+func TestCommandWireFormats(t *testing.T) {
+	t.Run("CBOR wire carries a JSON-encoded payload (ADR-0011 decision 5)", cborWireCarriesJSONEncodedPayload)
+	t.Run("CBOR wire carries a CBOR-encoded payload natively (ADR-0011 decision 5)", cborWireCarriesCBOREncodedPayload)
+	t.Run("unsupported or malformed Content-Type maps to 415", unsupportedWireMapsTo415)
+}
+
+// invokeTrackingService fails the test if any service method is reached; it
+// guards paths the boundary must reject before touching the service (invalid
+// aggregate id, unsupported wire).
 type invokeTrackingService struct{ t *testing.T }
 
 func (s invokeTrackingService) Load(context.Context, we.AggregateId) (we.Entity[struct{}], error) {
-	s.t.Fatal("Load must not be invoked for an invalid aggregate id")
+	s.t.Fatal("Load must not be invoked for a request rejected at the boundary")
 	return we.Entity[struct{}]{}, nil
 }
 
 func (s invokeTrackingService) Execute(context.Context, we.AggregateId, we.Command) (we.Entity[struct{}], error) {
-	s.t.Fatal("Execute must not be invoked for an invalid aggregate id")
+	s.t.Fatal("Execute must not be invoked for a request rejected at the boundary")
 	return we.Entity[struct{}]{}, nil
 }
