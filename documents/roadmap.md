@@ -141,6 +141,7 @@ not edited). Current log:
 | [0010](adr/0010-identity-grammar.md) | Aggregate identity grammar v2: kebab types, segmented keys, shared normative spec | Accepted |
 | [0011](adr/0011-encoding-boundary.md) | Encoding boundary: presentation contract, verbatim round-trip, store-owned storage format | Accepted |
 | [0012](adr/0012-manual-composition-roots.md) | Dependencies are wired by hand at per-binary composition roots | Accepted |
+| [0013](adr/0013-sqlite-single-owner-shards.md) | SQLite store: single owner per shard, partitioned by strategy | Accepted |
 
 ## Reference
 
