@@ -63,6 +63,7 @@ func TestNamedCatalogPartitionsRoundTripThroughStrategy(t *testing.T) {
 
 	parts, err := cat.Partitions(ctx)
 	require.NoError(t, err)
+	require.Len(t, parts, 2)
 	names := []string{parts[0].Name(), parts[1].Name()}
 	sort.Strings(names)
 	assert.Equal(t, []string{"order", "user"}, names)

@@ -26,8 +26,9 @@ func TestSqldProvisionerNamespaceAddressing(t *testing.T) {
 }
 
 func TestSqldProvisionerEnsureTargetCreatesNamespace(t *testing.T) {
-	var gotPath, gotAuth string
+	var gotMethod, gotPath, gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		w.WriteHeader(http.StatusOK)
@@ -37,6 +38,7 @@ func TestSqldProvisionerEnsureTargetCreatesNamespace(t *testing.T) {
 	p := newSqldProvisioner(srv.URL, "libsql://data.local", "tok")
 	tgt, err := p.EnsureTarget(context.Background(), PartitionName{name: "order"})
 	require.NoError(t, err)
+	assert.Equal(t, http.MethodPost, gotMethod)
 	assert.Equal(t, "/v1/namespaces/order/create", gotPath)
 	assert.Equal(t, "Bearer tok", gotAuth)
 	assert.Equal(t, "libsql://order.data.local", tgt.dsn)
@@ -52,6 +54,18 @@ func TestSqldProvisionerEnsureTargetToleratesConflict(t *testing.T) {
 	tgt, err := p.EnsureTarget(context.Background(), PartitionName{name: "order"})
 	require.NoError(t, err)
 	assert.Equal(t, "libsql://order.data.local", tgt.dsn)
+}
+
+func TestSqldProvisionerEnsureTargetRejectsErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	p := newSqldProvisioner(srv.URL, "libsql://data.local", "")
+	_, err := p.EnsureTarget(context.Background(), PartitionName{name: "order"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sqlite:")
 }
 
 func TestSqldProvisionerNamedTargetsEmpty(t *testing.T) {
