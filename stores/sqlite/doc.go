@@ -38,14 +38,17 @@
 //	Local(root, strategy)                              local SQLite file(s) under root
 //	SqldDefault(url, authToken, strategy)              one shared sqld endpoint
 //	SqldNamespaced(adminURL, dataURL, authToken, ...)  one sqld namespace per partition
+//	Turso(config, strategy)                            one Turso platform database per partition
 //
 // InMemory and SqldDefault accept only single-target strategies (Global);
-// SqldNamespaced requires a naming strategy; Local accepts either layout.
+// SqldNamespaced and Turso require a naming strategy; Local accepts either
+// layout.
 //
 // go-libsql ships prebuilt native libraries for darwin/arm64, linux/amd64,
 // and linux/arm64 only; the package cannot be built for other platforms or
-// with cgo disabled. Turso Platform support (provisioning remote databases via
-// the Platform API) is added separately and is not part of this cut.
+// with cgo disabled. The Turso backend provisions one platform database per
+// partition through the Platform API and awaits a new database's edge route
+// before first use.
 //
 // # Lifecycle
 //
