@@ -23,27 +23,6 @@ const defaultBusyTimeout = 5 * time.Second
 // revision conflict is NEVER retried here (SQLITE-S2.R5).
 const busyRetries = 3
 
-// schema is migrated one statement at a time: the go-libsql driver's
-// ExecContext runs only the first statement of a multi-statement string, so
-// the index MUST be a separate Exec or it is silently skipped — which would
-// disable the optimistic-concurrency guard (SQLITE-S2.R3).
-var schema = []string{
-	`CREATE TABLE IF NOT EXISTS events (
-    event_id        TEXT NOT NULL CHECK(length(event_id) = 26),
-    aggregate_type  TEXT NOT NULL,
-    aggregate_key   TEXT NOT NULL,
-    event_type      TEXT NOT NULL,
-    revision        TEXT NOT NULL CHECK(length(revision) = 26),
-    causation_id    TEXT,
-    correlation_id  TEXT,
-    encoding        TEXT NOT NULL,
-    data            BLOB NOT NULL,
-    PRIMARY KEY (event_id)
-);`,
-	`CREATE UNIQUE INDEX IF NOT EXISTS idx_events_aggregate
-    ON events (aggregate_type, aggregate_key, revision);`,
-}
-
 // Store is a SQLite/libSQL-backed we.EventStore. It owns the connection pool
 // and must be released through Close.
 type Store struct {
