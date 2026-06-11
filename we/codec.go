@@ -102,11 +102,9 @@ func (CBOREncoder) Encode(value any) (Data, error) {
 	}, nil
 }
 
-// hardenedCBORDecMode is a CBOR decode mode hardened for untrusted payloads.
-// Event/command bytes can originate from remote clients, so the decoder rejects
-// duplicate map keys, forbids indefinite-length items (the encoder always emits
-// definite-length CBOR), and caps nesting depth to bound resource use. The
-// unhardened package-level cbor.Unmarshal is never used on the decode path.
+// hardenedCBORDecMode backs HardenedCBORUnmarshal — the policy is documented
+// there. CBORDecoder shares it so the codec decode path and the exported entry
+// can never drift apart.
 var hardenedCBORDecMode = mustCBORDecMode(cbor.DecOptions{
 	DupMapKey:       cbor.DupMapKeyEnforcedAPF,
 	IndefLength:     cbor.IndefLengthForbidden,
@@ -119,6 +117,26 @@ func mustCBORDecMode(opts cbor.DecOptions) cbor.DecMode {
 		panic(err)
 	}
 	return mode
+}
+
+// HardenedCBORUnmarshal is THE hardened CBOR decode entry for untrusted or
+// at-rest bytes: command bodies arriving off the wire and store envelopes read
+// back from disk. It is the framework's single decode-side security policy —
+// every CBOR decode outside this package goes through it, never through the
+// unhardened package-level cbor.Unmarshal. Three protections apply:
+//
+//   - duplicate map keys are rejected (DupMapKeyEnforcedAPF), so a crafted
+//     payload cannot smuggle a second value past validation of the first;
+//   - indefinite-length items are forbidden (IndefLengthForbidden) — the
+//     encoders only ever emit definite-length CBOR, so an indefinite item is
+//     at best foreign and at worst a streaming-abuse vector;
+//   - nesting depth is capped at 16 (MaxNestedLevels) to bound stack and
+//     resource use against deeply nested payloads.
+//
+// Hardening is decode-side only: encoding trusted in-process values needs no
+// defence, so the encode path stays on the package-level cbor.Marshal.
+func HardenedCBORUnmarshal(data []byte, v any) error {
+	return hardenedCBORDecMode.Unmarshal(data, v)
 }
 
 // CBORDecoder decodes application/cbor payloads.

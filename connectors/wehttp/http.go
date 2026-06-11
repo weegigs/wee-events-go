@@ -28,24 +28,6 @@ const (
 	cborWire = "application/cbor"
 )
 
-// commandCBORDecMode hardens CBOR decoding of untrusted request bodies,
-// mirroring the decode-path policy in we/codec.go: duplicate map keys are
-// rejected, indefinite-length items are forbidden, and nesting depth is
-// capped. The unhardened package-level cbor.Unmarshal is never used here.
-var commandCBORDecMode = mustCBORDecMode(cbor.DecOptions{
-	DupMapKey:       cbor.DupMapKeyEnforcedAPF,
-	IndefLength:     cbor.IndefLengthForbidden,
-	MaxNestedLevels: 16,
-})
-
-func mustCBORDecMode(opts cbor.DecOptions) cbor.DecMode {
-	mode, err := opts.DecMode()
-	if err != nil {
-		panic(err)
-	}
-	return mode
-}
-
 // acceptsCBOR scans the request's Accept media ranges for the CBOR wire.
 // This negotiates the response WIRE format at the edge (ADR-0011 decision 5):
 // responses are freshly rendered from the resource map in the negotiated
@@ -280,7 +262,10 @@ func (service *httpService[T]) executeCommand() http.HandlerFunc {
 		case jsonWire:
 			err = json.Unmarshal(body, &command)
 		case cborWire:
-			err = commandCBORDecMode.Unmarshal(body, &command)
+			// Untrusted request bytes decode through the framework's single
+			// hardened policy (we.HardenedCBORUnmarshal), never the unhardened
+			// package-level cbor.Unmarshal.
+			err = we.HardenedCBORUnmarshal(body, &command)
 		}
 		if err != nil {
 			service.log.Info().Err(err).Msg("failed to unmarshal command")

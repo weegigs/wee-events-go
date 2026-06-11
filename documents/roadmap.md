@@ -83,13 +83,6 @@ an ADR for its key model before it could be scheduled.
 
 Surfaced during implementation work and its reviews; recorded for later, not yet scheduled.
 
-- **Hardened CBOR decoding is duplicated and partially bypassed.** The `we` package holds a
-  hardened CBOR decode mode (duplicate-map-key rejection, indefinite lengths forbidden,
-  nesting-depth cap) but does not export it. `connectors/wehttp` duplicates the same
-  `DecMode` construction (`http.go`), while `stores/jetstream` (`marshaller.go`) and
-  `stores/ds` (`change-set.go`) decode their envelopes with the unhardened package-level
-  `cbor.Unmarshal`. Fix: export one hardened CBOR decode entry from `we` and replace the
-  wehttp duplicate and both stores' unhardened calls with it.
 - **`restatedev/sdk-go` test harness vs `testcontainers-go` v0.42.** The SDK's own
   `github.com/restatedev/sdk-go/testing` helper (v0.24.0) does not compile against the repo's
   pinned `testcontainers-go` v0.42 (it calls the removed `nat.Port.Int()`; v0.42 returns

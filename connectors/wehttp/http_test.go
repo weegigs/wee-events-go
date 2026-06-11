@@ -414,10 +414,20 @@ func TestCommandWireFormats(t *testing.T) {
 
 // responseCBORDecMode decodes CBOR response bodies into JSON-equivalent Go
 // values (string-keyed maps via DefaultMapType) so a decoded CBOR body can be
-// compared directly against json.Unmarshal of the JSON wire rendering.
+// compared directly against json.Unmarshal of the JSON wire rendering. This
+// is test-only comparison plumbing, not the hardened decode policy — that
+// lives in we.HardenedCBORUnmarshal.
 var responseCBORDecMode = mustCBORDecMode(cbor.DecOptions{
 	DefaultMapType: reflect.TypeOf(map[string]any(nil)),
 })
+
+func mustCBORDecMode(opts cbor.DecOptions) cbor.DecMode {
+	mode, err := opts.DecMode()
+	if err != nil {
+		panic(err)
+	}
+	return mode
+}
 
 func decodeCBORValue(t *testing.T, body []byte) any {
 	t.Helper()

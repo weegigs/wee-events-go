@@ -3,8 +3,6 @@ package ds
 import (
 	"fmt"
 
-	"github.com/fxamacker/cbor/v2"
-
 	"github.com/weegigs/wee-events-go/we"
 )
 
@@ -28,9 +26,13 @@ type LatestRecord struct {
 	Timestamp    we.Timestamp `dynamodbav:"timestamp"`
 }
 
+// RecordedEvents decodes the change set's events attribute. Decode hardening
+// is shared via we.HardenedCBORUnmarshal: store envelopes can carry
+// foreign-writer bytes (SURFACE-S4.R2), so at-rest reads get the same
+// protections as wire intake.
 func (cs *ChangeSet) RecordedEvents() ([]we.RecordedEvent, error) {
 	var evts []we.RecordedEvent
-	if err := cbor.Unmarshal(cs.Events, &evts); err != nil {
+	if err := we.HardenedCBORUnmarshal(cs.Events, &evts); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal events: %w", err)
 	}
 

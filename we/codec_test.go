@@ -1,6 +1,7 @@
 package we
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -244,4 +245,75 @@ func unmarshalFromDataDispatchesAndRejects(t *testing.T) {
 func TestDataMarshaller(t *testing.T) {
 	t.Run("MarshalToData requires an explicit encoder (ENCODING-S1.R1)", marshalToDataRequiresExplicitEncoder)
 	t.Run("UnmarshalFromData dispatches and rejects (CBOR-S2.R1, CBOR-S2.R3)", unmarshalFromDataDispatchesAndRejects)
+}
+
+// HardenedCBORUnmarshal accepts well-formed definite-length CBOR — the only
+// shape the framework's encoders ever produce.
+func hardenedDecodeAcceptsWellFormedCBOR(t *testing.T) {
+	original := codecPayload{Name: "widget", Count: 7}
+	encoded, err := cbor.Marshal(original)
+	require.NoError(t, err)
+
+	var decoded codecPayload
+	require.NoError(t, HardenedCBORUnmarshal(encoded, &decoded))
+	assert.Equal(t, original, decoded)
+}
+
+// A map carrying the same key twice is rejected: a crafted payload must not
+// smuggle a second value past validation of the first.
+func hardenedDecodeRejectsDuplicateMapKeys(t *testing.T) {
+	// {"a": 1, "a": 2} — a 2-entry map repeating the key "a".
+	payload := []byte{0xa2, 0x61, 'a', 0x01, 0x61, 'a', 0x02}
+
+	var decoded map[string]int
+	err := HardenedCBORUnmarshal(payload, &decoded)
+
+	require.Error(t, err)
+	var dup *cbor.DupMapKeyError
+	assert.True(t, errors.As(err, &dup), "expected *cbor.DupMapKeyError, got %T", err)
+}
+
+// Indefinite-length items are rejected: the encoders only emit
+// definite-length CBOR, so an indefinite item is foreign by construction.
+func hardenedDecodeRejectsIndefiniteLengthItems(t *testing.T) {
+	// 0x9f opens an indefinite-length array; 0xff is the break.
+	payload := []byte{0x9f, 0x01, 0x02, 0xff}
+
+	var decoded []int
+	err := HardenedCBORUnmarshal(payload, &decoded)
+
+	require.Error(t, err)
+	var indefinite *cbor.IndefiniteLengthError
+	assert.True(t, errors.As(err, &indefinite), "expected *cbor.IndefiniteLengthError, got %T", err)
+}
+
+// Nesting is capped at 16 levels: depth 16 decodes, depth 17 is rejected,
+// bounding resource use against deeply nested payloads.
+func hardenedDecodeCapsNestingDepth(t *testing.T) {
+	// nestedArrays(n) is n arrays-of-one wrapped around a single integer:
+	// each 0x81 opens a 1-element array.
+	nestedArrays := func(depth int) []byte {
+		return append(bytes.Repeat([]byte{0x81}, depth), 0x01)
+	}
+
+	t.Run("depth 16 decodes", func(t *testing.T) {
+		var decoded any
+		require.NoError(t, HardenedCBORUnmarshal(nestedArrays(16), &decoded))
+	})
+
+	t.Run("depth 17 is rejected", func(t *testing.T) {
+		var decoded any
+		err := HardenedCBORUnmarshal(nestedArrays(17), &decoded)
+
+		require.Error(t, err)
+		var nested *cbor.MaxNestedLevelError
+		assert.True(t, errors.As(err, &nested), "expected *cbor.MaxNestedLevelError, got %T", err)
+	})
+}
+
+func TestHardenedCBORUnmarshal(t *testing.T) {
+	t.Run("accepts well-formed definite-length CBOR", hardenedDecodeAcceptsWellFormedCBOR)
+	t.Run("rejects duplicate map keys", hardenedDecodeRejectsDuplicateMapKeys)
+	t.Run("rejects indefinite-length items", hardenedDecodeRejectsIndefiniteLengthItems)
+	t.Run("caps nesting depth at 16", hardenedDecodeCapsNestingDepth)
 }
