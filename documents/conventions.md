@@ -53,6 +53,23 @@ Constructor function naming should follow the conventions established by the sta
 - `New<type>` creates a pointer to the instance, i.e `*<type>`.
 - `Make<type>` creates an instance of the type , i.e `<type>`
 
+## Dependency management
+
+Decided in [ADR-0012](adr/0012-manual-composition-roots.md); the day-to-day rules:
+
+- Dependencies are constructor parameters, typed as interfaces. What a
+  component needs is visible in its signature.
+- Prefer partial application for single-capability functions: a constructor
+  returns a closure that captures its dependencies
+  (`counter.Loader(store)` → `EntityLoader`).
+- Each binary has exactly one hand-written composition root (`local`/`live`).
+  It is the only place concrete stores, clients, and encoders are named.
+- A widening graph gets an explicit environment struct passed to
+  constructors — never a container.
+- `context.Context` never carries dependencies. Cancellation and
+  request-scoped values only.
+- No DI frameworks, compile-time or runtime.
+
 ## Comments
 
 Comments are proceeded by the authors initials, eg:

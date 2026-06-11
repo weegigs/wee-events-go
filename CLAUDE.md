@@ -71,7 +71,7 @@ This is an event sourcing framework implementing CQRS (Command Query Responsibil
 ### Key Patterns
 
 1. **Generics Usage**: The framework heavily uses Go 1.18+ generics for type-safe aggregate handling
-2. **Dependency Injection**: Manual constructor wiring at each binary's composition root (e.g. `local`/`live` in the samples) — no DI framework
+2. **Dependency Injection**: Manual constructor wiring at each binary's composition root (e.g. `local`/`live` in the samples) — no DI framework (ADR-0012)
 3. **Functional Style**: Reducers and handlers follow functional patterns
 4. **Event Metadata**: Events include revision numbers, timestamps, and correlation IDs
 

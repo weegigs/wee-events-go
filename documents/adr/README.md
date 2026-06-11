@@ -27,6 +27,7 @@ changes, supersede its ADR and the references still resolve.
 | [0009](0009-property-based-testing-rapid.md) | Use `pgregory.net/rapid` for property-based conformance testing | Accepted |
 | [0010](0010-identity-grammar.md) | Aggregate identity grammar v2: kebab types, segmented keys, shared normative spec | Accepted |
 | [0011](0011-encoding-boundary.md) | Encoding boundary: presentation contract, verbatim round-trip, store-owned storage format | Accepted |
+| [0012](0012-manual-composition-roots.md) | Dependencies are wired by hand at per-binary composition roots | Accepted |
 
 ## Conventions
 
