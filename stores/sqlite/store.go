@@ -242,6 +242,10 @@ func setWALJournalMode(ctx context.Context, conn *sql.Conn) error {
 	deadline := time.Now().Add(defaultBusyTimeout)
 	backoff := time.Millisecond
 	for {
+		// The returned journal-mode value is intentionally NOT validated: an
+		// :memory: target reports "memory" (WAL is inapplicable there, but the
+		// database is private so there is no cross-instance contention to guard
+		// against), so requiring "wal" would wrongly fail every in-memory shard.
 		var mode string
 		err := conn.QueryRowContext(ctx, "PRAGMA journal_mode=WAL").Scan(&mode)
 		if err == nil {
@@ -361,9 +365,11 @@ func publishOnce(ctx context.Context, db *sql.DB, busyTimeout time.Duration, id 
 	}
 	defer func() { _ = conn.Close() }()
 
-	// busy_timeout is per-connection and the pool may hand out a connection
-	// that never had it set; without it BEGIN IMMEDIATE fails fast with
-	// SQLITE_BUSY instead of waiting out a concurrent writer.
+	// busy_timeout is per-connection. A shard pins one connection that already
+	// has it set, but two SEPARATE Store instances over the same file have
+	// independent pools and one cannot see the other's pragma; ensuring it per
+	// write transaction is what lets BEGIN IMMEDIATE wait out a concurrent
+	// cross-instance writer instead of failing fast with SQLITE_BUSY.
 	if err := applyBusyTimeout(ctx, conn, busyTimeout); err != nil {
 		return err
 	}
