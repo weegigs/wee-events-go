@@ -90,3 +90,20 @@ Per `documents/conventions.md`:
 - Logging: Only `info` (user-facing) and `debug` (developer) levels
 - Constructors: `New*` returns pointer, `Make*` returns value
 - Comments may include author initials (e.g., "KAO")
+
+## Encoding Layers
+
+Four layers, one owner each (`documents/adr/0011-encoding-boundary.md`;
+design: `docs/superpowers/specs/2026-06-10-encoding-boundary-design.md`):
+
+1. **Application format** — typed events per language (e.g. a Go struct)
+2. **Wire format** — owned by the API edge, negotiated via Content-Type
+   (wehttp JSON/CBOR intake; werestate payloads)
+3. **Presentation contract** — `we.Data{encoding, []byte}`: what Publish
+   hands a store and what Load hands back; verbatim at the store boundary
+   (original bytes, original tag — never transcoded)
+4. **Storage format** — store-chosen and optimal for the medium (jetstream
+   CBOR envelope, ds binary attribute, sqlite BLOB, …)
+
+Before changing anything encoding-touching: which layer is being changed,
+and does the change make one layer's property leak into another?

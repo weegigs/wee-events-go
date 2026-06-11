@@ -81,17 +81,19 @@ an ADR for its key model before it could be scheduled.
 
 ## Follow-ups discovered during implementation
 
-Surfaced by the 01–05 work and its reviews; recorded for later, not yet scheduled.
+Surfaced during implementation work and its reviews; recorded for later, not yet scheduled.
 
-- **`we.Data.Data` is typed `json.RawMessage` but now carries CBOR bytes.** Feature 01 made
-  payloads codec-agnostic, but the `Data` envelope field is still `json.RawMessage`. Stores
-  that persist the *whole envelope as JSON* (`stores/jetstream`, `stores/ds`) would emit
-  invalid JSON for a CBOR payload, because `json.RawMessage` is copied verbatim into the JSON
-  output. `stores/kurrent` and `stores/sqlite` store the payload as an opaque BLOB and are
-  unaffected, so end-to-end CBOR is currently safe only on those two. Fix: retype `Data.Data`
-  as `[]byte` and adjust the jetstream/ds envelope (de)serialization to treat it as opaque
-  bytes (e.g. base64 or a bytes column), then extend the codec round-trip tests across all
-  four backends. Until then, CBOR should be used only with the kurrent and sqlite stores.
+- **Hardened CBOR decoding is duplicated and partially bypassed.** The `we` package holds a
+  hardened CBOR decode mode (duplicate-map-key rejection, indefinite lengths forbidden,
+  nesting-depth cap) but does not export it. `connectors/wehttp` duplicates the same
+  `DecMode` construction (`http.go`), while `stores/jetstream` (`marshaller.go`) and
+  `stores/ds` (`change-set.go`) decode their envelopes with the unhardened package-level
+  `cbor.Unmarshal`. Fix: export one hardened CBOR decode entry from `we` and replace the
+  wehttp duplicate and both stores' unhardened calls with it.
+- **wehttp request bodies are unbounded.** The command intake reads the request body with
+  `io.ReadAll` (`connectors/wehttp/http.go`) and no size limit — an unbounded read at the
+  public edge. Fix: wrap the body in `http.MaxBytesReader` with a configured cap before
+  reading.
 - **`restatedev/sdk-go` test harness vs `testcontainers-go` v0.42.** The SDK's own
   `github.com/restatedev/sdk-go/testing` helper (v0.24.0) does not compile against the repo's
   pinned `testcontainers-go` v0.42 (it calls the removed `nat.Port.Int()`; v0.42 returns
@@ -138,6 +140,7 @@ not edited). Current log:
 | 0008 | Aggregate identity: canonical `type:key` form and validated construction | Superseded by 0010 — removed |
 | [0009](adr/0009-property-based-testing-rapid.md) | Use `pgregory.net/rapid` for property-based conformance testing | Accepted |
 | [0010](adr/0010-identity-grammar.md) | Aggregate identity grammar v2: kebab types, segmented keys, shared normative spec | Accepted |
+| [0011](adr/0011-encoding-boundary.md) | Encoding boundary: presentation contract, verbatim round-trip, store-owned storage format | Accepted |
 
 ## Reference
 

@@ -28,6 +28,10 @@ envelope's declared `encoding` discriminator (Feature 01).
   constructor argument; supersedes ADR-0001 (which carried the implicit default). The
   interop rationale of ADR-0001 (JSON for cross-family byte-compatibility) survives as
   the recommendation.
+- [ADR-0011](../adr/0011-encoding-boundary.md) — encoding boundary: `we.Data` is a
+  presentation contract, stores re-present payload bytes verbatim with the original
+  tag, and storage format is store-owned. Unscopes ENCODING-S3.R2: every backend
+  carries every encoding.
 
 ## User stories
 
@@ -86,13 +90,14 @@ unchanged.*
   remain green unmodified.)*
 - **ENCODING-S3.R2** (event-driven) — When a store constructed with the CBOR encoder
   publishes, the envelope shall carry `application/cbor` and the conformance suite's
-  opaque-payload guarantees (SQLITE-S4, CONFORMANCE) shall hold unchanged. *(End-to-end
-  CBOR remains scoped to BLOB-backed stores per the recorded Feature 01 follow-up; the
-  loud `json.Marshal` failure on ds/jetstream is pre-existing, verified behaviour.)*
+  opaque-payload guarantees (SQLITE-S4, CONFORMANCE) shall hold unchanged. *(Unscoped:
+  every backend carries every encoding verbatim —
+  [ADR-0011](../adr/0011-encoding-boundary.md).)*
 
 ## Out of scope
 
-- Per-publish or per-event encoding selection (explicitly rejected — ENCODING-S2.R3).
+- Per-event encoding selection within a single publish (per-publish override is the
+  supported granularity — ENCODING-S2.R3, retained by ADR-0011).
 - Changing the default *recommendation* away from JSON (interop rationale unchanged).
 - Payload encryption (Feature 06) and any new codec.
 
@@ -107,4 +112,4 @@ unchanged.*
 | ENCODING-S2.R3 | Store test: construct with JSON encoder, publish one event with `WithEncoder(MakeCBOREncoder())` — loaded envelope carries `application/cbor` while neighbouring events carry `application/json`; both decode via the registry (mixed stream) |
 | ENCODING-S2.R5 | Store test: `WithEncoder(nil)` → publish error containing `"encoder must not be nil"`, `Load` shows no event recorded |
 | ENCODING-S3.R1 | `jsonEncoderPreservesPreFeatureBytes` (CBOR-S3.R2) green unmodified |
-| ENCODING-S3.R2 | sqlite store constructed with `MakeCBOREncoder()`: publish/load round-trip asserts `application/cbor` discriminator and verbatim bytes |
+| ENCODING-S3.R2 | Conformance-suite scenario "round-trips payload bytes verbatim through storage" across memory/ds/jetstream/kurrent/sqlite: publish with each built-in encoder via `WithEncoder`, load asserts the original encoding tag and byte-verbatim payload (ADR-0011 decision 2) |

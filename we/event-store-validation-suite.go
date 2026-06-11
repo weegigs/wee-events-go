@@ -64,6 +64,7 @@ func (s *EventStoreValidationSuite) scenarios() []scenario {
 		{"preserves event ordering across separately published batches", s.EventOrderingPreserved},
 		{"supports causation id", s.Causation},
 		{"round-trips full-charset identities through storage", s.IdentityRoundTripsThroughStorage},
+		{"round-trips payload bytes verbatim through storage", s.PayloadBytesRoundTripVerbatimThroughStorage},
 	}
 }
 
@@ -492,6 +493,43 @@ func (s *EventStoreValidationSuite) IdentityRoundTripsThroughStorage(t *testing.
 		require.NoError(rt, UnmarshalFromData(loaded.Events[0].Data, &decoded))
 		require.Equal(rt, event, decoded, "payload must round-trip verbatim")
 	})
+}
+
+// PayloadBytesRoundTripVerbatimThroughStorage proves a backend re-presents on
+// read exactly the payload bytes it was handed on publish, with the original
+// encoding tag, for both built-in encodings. This is ENCODING-S3.R2 in its
+// unscoped form: every backend carries every encoding verbatim — the verbatim
+// rule of ADR-0011 decision 2 (see also
+// docs/superpowers/specs/2026-06-10-encoding-boundary-design.md). Verbatim
+// means byte equality, not decode equality: a store that transcodes or
+// normalises payload bytes fails here even when the decoded value would
+// still compare equal.
+func (s *EventStoreValidationSuite) PayloadBytesRoundTripVerbatimThroughStorage(t *testing.T) {
+	event := s.MakeTestEvent()
+
+	for _, encoder := range []Encoder{MakeJSONEncoder(), MakeCBOREncoder()} {
+		// Pre-encode the event with the publishing encoder to capture the exact
+		// bytes Publish hands the store. That capture is only valid if the
+		// encoder is deterministic, so pin determinism first: encoding twice
+		// must yield identical envelopes.
+		expected, err := MarshalToData(encoder, event)
+		require.NoError(t, err)
+		again, err := MarshalToData(encoder, event)
+		require.NoError(t, err)
+		require.Equal(t, expected, again,
+			"%s encoder must be deterministic for the pre-encoded bytes to equal the published bytes", encoder.Encoding())
+
+		aggregateId := s.MakeTestAggregateId()
+		require.NoError(t, s.store.Publish(s.ctx, aggregateId, Options(WithEncoder(encoder)), event))
+
+		loaded, err := s.store.Load(s.ctx, aggregateId)
+		require.NoError(t, err)
+		require.Len(t, loaded.Events, 1)
+		require.Equal(t, encoder.Encoding(), loaded.Events[0].Data.Encoding,
+			"the original encoding tag must survive storage")
+		require.Equal(t, expected.Data, loaded.Events[0].Data.Data,
+			"payload bytes must round-trip verbatim through storage (%s)", encoder.Encoding())
+	}
 }
 
 // NewSharedBackingSuite builds a paired conformance suite over two EventStore

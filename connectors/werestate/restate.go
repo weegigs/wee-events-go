@@ -166,6 +166,8 @@ func (s *service[T]) loadHandler() restate.ObjectSharedHandlerFn[restate.Void, E
 // replayed invocation carrying the same idempotency key, the journaled result is
 // yielded instead of re-applying the command (RESTATE-S2.R1–R4). Restate's
 // exclusive-per-key semantics serialise concurrent executes for one aggregate.
+// Layer note: this connector is a wire-format edge (ADR-0011 decision 1);
+// the Restate SDK owns the wire serialisation of we.RemoteCommand.
 func (s *service[T]) executeHandler() restate.ObjectHandlerFn[we.RemoteCommand, EntityResponse] {
 	return func(ctx restate.ObjectContext, command we.RemoteCommand) (EntityResponse, error) {
 		id, err := decodeKey(restate.Key(ctx))
