@@ -12,7 +12,7 @@ import (
 // against a private in-memory SQLite database.
 func BenchmarkSqliteInMemory(b *testing.B) {
 	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory())
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory(Global()))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func BenchmarkSqliteInMemory(b *testing.B) {
 // against a local-file SQLite database in a temporary directory.
 func BenchmarkSqliteLocalFile(b *testing.B) {
 	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeJSONEncoder(), LocalFile(filepath.Join(b.TempDir(), "bench.db")))
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), Local(filepath.Join(b.TempDir(), "bench.db"), Global()))
 	if err != nil {
 		b.Fatal(err)
 	}

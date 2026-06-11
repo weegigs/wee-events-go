@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
+	"sync"
 	"time"
 
 	_ "github.com/tursodatabase/go-libsql"
@@ -23,165 +23,238 @@ const defaultBusyTimeout = 5 * time.Second
 // revision conflict is NEVER retried here (SQLITE-S2.R5).
 const busyRetries = 3
 
-// Store is a SQLite/libSQL-backed we.EventStore. It owns the connection pool
-// and must be released through Close.
-type Store struct {
-	db          *sql.DB
-	busyTimeout time.Duration
-	encoder     we.Encoder
+// Backend pairs a strategy with the catalog that serves it. (Deferred here from
+// the catalog task because the constructors below are the first code to read
+// its fields.)
+type Backend struct {
+	strategy PartitionStrategy
+	catalog  PartitionCatalog
 }
 
-// compile-time assertion that *Store satisfies the EventStore contract
-// (SQLITE-S1.R1).
+// Store is a partitioned SQLite/libSQL event store. A PartitionStrategy routes
+// each aggregate to a Partition; a PartitionCatalog maps the partition to a
+// database target; each partition is owned by one shard goroutine. The store
+// satisfies we.EventStore (SQLITE-S1.R1).
+type Store struct {
+	strategy PartitionStrategy
+	catalog  PartitionCatalog
+	encoder  we.Encoder
+
+	mu     sync.Mutex
+	shards map[Partition]*shard
+	known  map[Partition]struct{}
+	closed bool
+}
+
 var _ we.EventStore = (*Store)(nil)
 
-type config struct {
-	dsn         string
-	maxOpen     int
-	busyTimeout time.Duration
-	options     []libsqlOption
-}
-
-// Option configures a Store target and connection behaviour. The same option
-// set selects in-memory, local-file, or remote targets (SQLITE-S3.R1).
-type Option func(*config) error
-
-// InMemory selects a private in-memory database. The pool is pinned to a
-// single connection so every operation shares the one in-memory database.
-func InMemory() Option {
-	return func(c *config) error {
-		c.dsn = ":memory:"
-		c.maxOpen = 1
-		return nil
-	}
-}
-
-// LocalFile selects a local-file database at path.
-func LocalFile(path string) Option {
-	return func(c *config) error {
-		if strings.TrimSpace(path) == "" {
-			return errors.New("sqlite: local file path must not be empty")
-		}
-		c.dsn = "file:" + path
-		return nil
-	}
-}
-
-// Remote selects a remote sqld/Turso database. url must use the libsql://,
-// https://, or http:// scheme. An empty authToken is permitted for unsecured
-// sqld endpoints.
-func Remote(url string, authToken string) Option {
-	return func(c *config) error {
-		if strings.TrimSpace(url) == "" {
-			return errors.New("sqlite: remote url must not be empty")
-		}
-		c.dsn = url
-		if authToken != "" {
-			c.options = append(c.options, withAuthToken(authToken))
-		}
-		return nil
-	}
-}
-
-// BusyTimeout overrides the SQLite busy_timeout applied to every connection
-// used for publishing (busy_timeout is per-connection, so each write
-// connection sets it before taking the write lock).
-func BusyTimeout(timeout time.Duration) Option {
-	return func(c *config) error {
-		if timeout < 0 {
-			return errors.New("sqlite: busy timeout must not be negative")
-		}
-		c.busyTimeout = timeout
-		return nil
-	}
-}
-
-// NewStore opens the configured target, applies the connection PRAGMAs, and
-// migrates the events table. The encoder is the store's explicit write
-// encoding (ENCODING-S2.R1); nil is a construction error, never a deferred
-// panic (ENCODING-S2.R2). It returns a usable *Store or an error and never
-// a half-built store (SQLITE-S1.R5, SQLITE-S3.R2).
-func NewStore(ctx context.Context, encoder we.Encoder, options ...Option) (*Store, error) {
+// NewStore opens a partitioned store over the given backend. The encoder is the
+// store's explicit write encoding (ENCODING-S2.R1); nil is a construction error.
+func NewStore(_ context.Context, encoder we.Encoder, backend Backend) (*Store, error) {
 	if encoder == nil {
 		return nil, errors.New("sqlite: encoder is required")
 	}
-
-	cfg := config{busyTimeout: defaultBusyTimeout}
-	for _, option := range options {
-		if err := option(&cfg); err != nil {
-			return nil, err
-		}
-	}
-
-	if cfg.dsn == "" {
-		return nil, errors.New("sqlite: a target option is required (InMemory, LocalFile, or Remote)")
-	}
-
-	dsn, err := applyLibsqlOptions(cfg.dsn, cfg.options)
-	if err != nil {
-		return nil, err
-	}
-
-	// Capture the remote auth token (if any) so a driver error that echoes the
-	// connection string cannot leak the credential through a wrapped error.
-	var authToken string
-	for _, option := range cfg.options {
-		if option.key == "authToken" {
-			authToken = option.value
-		}
-	}
-
-	db, err := sql.Open(driverName, dsn)
-	if err != nil {
-		return nil, redactToken(fmt.Errorf("sqlite: failed to open database: %w", err), authToken)
-	}
-
-	if cfg.maxOpen > 0 {
-		db.SetMaxOpenConns(cfg.maxOpen)
-	}
-
-	store := &Store{
-		db:          db,
-		busyTimeout: cfg.busyTimeout,
-		encoder:     encoder,
-	}
-
-	if err := store.prepare(ctx); err != nil {
-		// A half-built store is never returned: release the pool we opened.
-		_ = db.Close()
-		return nil, redactToken(err, authToken)
-	}
-
-	return store, nil
+	return &Store{
+		strategy: backend.strategy,
+		catalog:  backend.catalog,
+		encoder:  encoder,
+		shards:   map[Partition]*shard{},
+		known:    map[Partition]struct{}{},
+	}, nil
 }
 
-// Close releases the connection pool. Pairs with NewStore (principle 2).
+// Close stops every shard and releases every database. Pairs with NewStore.
 func (s *Store) Close() error {
-	return s.db.Close()
-}
-
-func (s *Store) prepare(ctx context.Context) error {
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("sqlite: failed to acquire connection: %w", err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
 	}
-	defer func() { _ = conn.Close() }()
-
-	if err := applyPragmas(ctx, conn, s.busyTimeout); err != nil {
-		return err
+	s.closed = true
+	for _, sh := range s.shards {
+		sh.stop()
 	}
-
-	for _, statement := range schema {
-		if _, err := conn.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("sqlite: failed to migrate schema: %w", err)
-		}
-	}
-
+	s.shards = map[Partition]*shard{}
 	return nil
 }
 
 func (s *Store) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
-	return loadEvents(ctx, s.db, id)
+	partition := s.strategy.PartitionFor(id)
+	sh, ok, err := s.openExisting(ctx, partition)
+	if err != nil {
+		return we.Aggregate{}, err
+	}
+	if !ok {
+		// A partition that was never provisioned holds no events; this is a
+		// state, not an error.
+		return we.Aggregate{Id: id, Revision: we.InitialRevision}, nil
+	}
+	return sh.load(ctx, id)
+}
+
+func (s *Store) Publish(ctx context.Context, id we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
+	partition := s.strategy.PartitionFor(id)
+	sh, err := s.ensureShard(ctx, partition)
+	if err != nil {
+		return err
+	}
+	return sh.publish(ctx, id, options, events...)
+}
+
+// ensureShard returns the partition's shard, provisioning and opening it on
+// first use. The shard map grows monotonically; unbounded strategies
+// (ByAggregate) trade memory for isolation, as documented.
+func (s *Store) ensureShard(ctx context.Context, p Partition) (*shard, error) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, errStoreClosed
+	}
+	if sh, ok := s.shards[p]; ok {
+		s.mu.Unlock()
+		return sh, nil
+	}
+	s.mu.Unlock()
+
+	target, err := s.catalog.EnsureTarget(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	sh, err := s.openShard(ctx, p, target)
+	if err != nil {
+		return nil, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		sh.stop()
+		return nil, errStoreClosed
+	}
+	if existing, ok := s.shards[p]; ok {
+		// Another goroutine opened it first; discard the duplicate.
+		sh.stop()
+		return existing, nil
+	}
+	s.shards[p] = sh
+	s.known[p] = struct{}{}
+	return sh, nil
+}
+
+// openExisting returns the partition's shard if its target already exists,
+// without provisioning. Used by Load.
+func (s *Store) openExisting(ctx context.Context, p Partition) (*shard, bool, error) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, false, errStoreClosed
+	}
+	if sh, ok := s.shards[p]; ok {
+		s.mu.Unlock()
+		return sh, true, nil
+	}
+	s.mu.Unlock()
+
+	target, ok, err := s.catalog.ExistingTarget(ctx, p)
+	if err != nil || !ok {
+		return nil, false, err
+	}
+	sh, err := s.openShard(ctx, p, target)
+	if err != nil {
+		return nil, false, err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		sh.stop()
+		return nil, false, errStoreClosed
+	}
+	if existing, ok := s.shards[p]; ok {
+		sh.stop()
+		return existing, true, nil
+	}
+	s.shards[p] = sh
+	s.known[p] = struct{}{}
+	return sh, true, nil
+}
+
+// openShard opens and migrates a target, applies the WAL pragma, records its
+// partition name, and starts its owner goroutine.
+func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*shard, error) {
+	db, err := sql.Open(driverName, target.dsn)
+	if err != nil {
+		return nil, redactToken(fmt.Errorf("sqlite: failed to open database: %w", err), target.authToken)
+	}
+	db.SetMaxOpenConns(1)
+
+	// Pragmas before migration: WAL is a file-level property and busy_timeout a
+	// per-connection one, and the CREATE TABLE statements in migrate are
+	// themselves writes. Without WAL + busy_timeout in force first, two
+	// instances opening one shared file race their migrations into a raw
+	// "database is locked". SetMaxOpenConns(1) means the single pooled
+	// connection applyShardPragmas configures is the same one migrate reuses.
+	if err := applyShardPragmas(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, redactToken(err, target.authToken)
+	}
+	if err := migrate(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, redactToken(err, target.authToken)
+	}
+	if err := s.catalog.PrepareShard(ctx, p, db); err != nil {
+		_ = db.Close()
+		return nil, redactToken(err, target.authToken)
+	}
+	return newShard(db, s.encoder, defaultBusyTimeout), nil
+}
+
+// applyShardPragmas applies the persistent WAL journal mode (and a baseline
+// busy_timeout) once on the shard's single connection. WAL is a file-level
+// property: setting it once lets cross-instance readers (Load) not block on a
+// writer holding the file's write lock. busy_timeout is additionally re-applied
+// per write transaction in publishOnce.
+//
+// Shards open lazily on first use, so two instances over one shared file can
+// open it concurrently. busy_timeout is set FIRST — before the WAL conversion —
+// because the conversion needs the file's write lock, and the second instance
+// must wait it out rather than fail fast with "database is locked".
+func applyShardPragmas(ctx context.Context, db *sql.DB) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("sqlite: failed to acquire connection: %w", err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := applyBusyTimeout(ctx, conn, defaultBusyTimeout); err != nil {
+		return err
+	}
+	return applyPragmas(ctx, conn, defaultBusyTimeout)
+}
+
+// Local builds a backend backed by local SQLite files under root. Global uses
+// root as a single file; named strategies use it as a directory.
+func Local(root string, strategy LocalStrategy) Backend {
+	return Backend{strategy: strategy, catalog: newLocalCatalog(root, strategy)}
+}
+
+// InMemory builds a single private in-memory database. Only single-target
+// strategies are legal.
+func InMemory(strategy SingleTargetStrategy) Backend {
+	return Backend{strategy: strategy, catalog: newSingleTargetCatalog(Target{dsn: ":memory:"})}
+}
+
+// SqldDefault builds a backend over one shared sqld endpoint. Only single-target
+// strategies are legal.
+func SqldDefault(url, authToken string, strategy SingleTargetStrategy) Backend {
+	return Backend{strategy: strategy, catalog: newSingleTargetCatalog(Target{dsn: url, authToken: authToken})}
+}
+
+// SqldNamespaced builds a backend that provisions one sqld namespace per
+// partition. adminURL is the namespace admin endpoint; dataURL is the data
+// endpoint partitions are addressed under.
+func SqldNamespaced(adminURL, dataURL, authToken string, strategy NamingStrategy) Backend {
+	provisioner := newSqldProvisioner(adminURL, dataURL, authToken)
+	return Backend{strategy: strategy, catalog: newNamedTargetCatalog(strategy, provisioner)}
 }
 
 func loadEvents(ctx context.Context, db *sql.DB, id we.AggregateId) (we.Aggregate, error) {
@@ -249,31 +322,6 @@ ORDER BY revision ASC;`
 		Events:   events,
 		Revision: revision,
 	}, nil
-}
-
-func (s *Store) Publish(ctx context.Context, id we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
-	if len(events) == 0 {
-		// Empty publish is a no-op (matches the suite's EmptyPublish semantics).
-		// The no-op deliberately short-circuits BEFORE override validation: with
-		// zero events the nil encoder is never used and nothing can be
-		// mis-recorded, so an empty publish is a state, not an error.
-		return nil
-	}
-
-	// Resolve the publish encoder before encoding: an explicit per-publish
-	// override wins, and an explicit nil override is an error that records
-	// nothing (ENCODING-S2.R3, ENCODING-S2.R5).
-	encoder, err := options.EncoderFor(s.encoder)
-	if err != nil {
-		return fmt.Errorf("sqlite: %w", err)
-	}
-
-	rows, err := encodeEvents(encoder, options, events)
-	if err != nil {
-		return err
-	}
-
-	return publishRows(ctx, s.db, s.busyTimeout, id, options, rows)
 }
 
 func publishOnce(ctx context.Context, db *sql.DB, busyTimeout time.Duration, id we.AggregateId, options we.PublishOptions, rows []eventRow) (err error) {

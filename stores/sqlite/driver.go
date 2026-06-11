@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,18 +61,6 @@ func sequenceForRevision(revision we.Revision) (uint64, error) {
 	return sequence, nil
 }
 
-// libsqlOption carries a driver-level setting that the go-libsql DSN encodes
-// as a query parameter (the standard database/sql entry point has no typed
-// option API). Only the remote auth token is supported in this cut.
-type libsqlOption struct {
-	key   string
-	value string
-}
-
-func withAuthToken(token string) libsqlOption {
-	return libsqlOption{key: "authToken", value: token}
-}
-
 // redactToken strips a known auth-token value from an error's text so a driver
 // error that echoes the remote connection string cannot leak the credential
 // into a wrapped error or a log. Returns err unchanged when no token is set.
@@ -91,39 +78,6 @@ func redactToken(err error, token string) error {
 		return err
 	}
 	return errors.New(scrubbed)
-}
-
-// applyLibsqlOptions folds driver options into the DSN. The go-libsql remote
-// connector reads authToken from the URL query string. Local and in-memory
-// DSNs accept no options in this cut, so any option there is an error rather
-// than a silently ignored setting.
-func applyLibsqlOptions(dsn string, options []libsqlOption) (string, error) {
-	if len(options) == 0 {
-		return dsn, nil
-	}
-
-	if !isRemoteDSN(dsn) {
-		return "", fmt.Errorf("sqlite: connection options are only supported for remote targets")
-	}
-
-	u, err := url.Parse(dsn)
-	if err != nil {
-		return "", fmt.Errorf("sqlite: invalid remote url: %w", err)
-	}
-
-	query := u.Query()
-	for _, option := range options {
-		query.Set(option.key, option.value)
-	}
-	u.RawQuery = query.Encode()
-
-	return u.String(), nil
-}
-
-func isRemoteDSN(dsn string) bool {
-	return strings.HasPrefix(dsn, "libsql://") ||
-		strings.HasPrefix(dsn, "https://") ||
-		strings.HasPrefix(dsn, "http://")
 }
 
 // applyPragmas sets the store-level PRAGMAs at construction. journal_mode and

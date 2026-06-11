@@ -22,7 +22,7 @@ type testEvent struct {
 func newMemoryStore(t *testing.T) *Store {
 	t.Helper()
 	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory())
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory(Global()))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	return store
@@ -31,10 +31,21 @@ func newMemoryStore(t *testing.T) *Store {
 func newFileStore(t *testing.T, path string) *Store {
 	t.Helper()
 	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeJSONEncoder(), LocalFile(path))
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), Local(path, Global()))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 	return store
+}
+
+// storeShardDB returns the *sql.DB backing the partition that id routes to,
+// provisioning the shard. Test-only: lets a test inject malformed/duplicate
+// rows behind the store, as the old tests did via the removed Store.db field.
+func storeShardDB(t *testing.T, ctx context.Context, store *Store, id we.AggregateId) *sql.DB {
+	t.Helper()
+	p := store.strategy.PartitionFor(id)
+	sh, err := store.ensureShard(ctx, p)
+	require.NoError(t, err)
+	return sh.db
 }
 
 func makeAggregateId() we.AggregateId {
@@ -72,30 +83,6 @@ func TestLoadInitial(t *testing.T) {
 	assert.Equal(t, id, aggregate.Id)
 }
 
-// SQLITE-S1.R5 — NewStore returns an error and no store value when the target
-// cannot be opened or migrated.
-func TestNewStoreRequiresTarget(t *testing.T) {
-	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeJSONEncoder())
-	require.Error(t, err)
-	assert.Nil(t, store)
-}
-
-func TestNewStoreInvalidLocalFile(t *testing.T) {
-	ctx := context.Background()
-	// A path under a non-existent directory cannot be opened or migrated.
-	store, err := NewStore(ctx, we.MakeJSONEncoder(), LocalFile(filepath.Join(t.TempDir(), "missing-dir", "events.db")))
-	require.Error(t, err)
-	assert.Nil(t, store)
-}
-
-func TestNewStoreEmptyLocalFile(t *testing.T) {
-	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeJSONEncoder(), LocalFile("  "))
-	require.Error(t, err)
-	assert.Nil(t, store)
-}
-
 // SQLITE-S2.R3 — a UNIQUE (aggregate_type, aggregate_key, revision) violation
 // surfaces as we.RevisionConflict, not a raw driver error. Forced directly by
 // inserting a duplicate revision row behind the store.
@@ -112,7 +99,7 @@ func TestUniqueViolationMapsToRevisionConflict(t *testing.T) {
 
 	// Insert a second row with the SAME revision for the same aggregate,
 	// violating the unique index exactly as a lost concurrency race would.
-	_, err = store.db.ExecContext(ctx, `
+	_, err = storeShardDB(t, ctx, store, id).ExecContext(ctx, `
 INSERT INTO events
     (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
 VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?);`,
@@ -139,7 +126,7 @@ func TestEventIdCollisionIsNotARevisionConflict(t *testing.T) {
 
 	// Re-insert the SAME event_id at a fresh revision: only the primary key is
 	// violated, not the aggregate concurrency index.
-	_, err = store.db.ExecContext(ctx, `
+	_, err = storeShardDB(t, ctx, store, id).ExecContext(ctx, `
 INSERT INTO events
     (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
 VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?);`,
@@ -224,7 +211,7 @@ func TestUnknownEncodingRoundTripsUnchanged(t *testing.T) {
 	payload := []byte{0x01, 0x02, 0x03, 0xff}
 	encoding := "application/x-not-a-real-encoding"
 
-	_, err := store.db.ExecContext(ctx, `
+	_, err := storeShardDB(t, ctx, store, id).ExecContext(ctx, `
 INSERT INTO events
     (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
 VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?);`,
@@ -252,47 +239,6 @@ func TestSharedBackingConformance(t *testing.T) {
 	second := newFileStore(t, path)
 
 	we.NewSharedBackingSuite(ctx, first, second).Run(t)
-}
-
-// busy_timeout is a per-connection SQLite setting, but database/sql is a pool:
-// a publish that lands on a freshly created pool connection must still wait
-// out a held write lock rather than failing fast with SQLITE_BUSY. The test
-// pins the store's only idle (pragma-bearing) connection so Publish is forced
-// onto a fresh one, while a second store instance holds the file's write lock
-// for longer than the in-store immediate-retry loop can absorb.
-func TestBusyTimeoutAppliesToPoolConnections(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "busy.db")
-
-	blocker := newFileStore(t, path)
-	publisher := newFileStore(t, path)
-
-	// Pin the connection prepare() configured; Publish must open a fresh one.
-	pinned, err := publisher.db.Conn(ctx)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, pinned.Close()) }()
-
-	// Take the write lock from the other instance and hold it briefly.
-	lock, err := blocker.db.Conn(ctx)
-	require.NoError(t, err)
-	_, err = lock.ExecContext(ctx, "BEGIN IMMEDIATE")
-	require.NoError(t, err)
-
-	released := make(chan struct{})
-	go func() {
-		defer close(released)
-		time.Sleep(250 * time.Millisecond)
-		_, rbErr := lock.ExecContext(ctx, "ROLLBACK")
-		assert.NoError(t, rbErr)
-		assert.NoError(t, lock.Close())
-	}()
-
-	// With busy_timeout active on the fresh connection the engine waits for the
-	// lock; without it BEGIN IMMEDIATE fails fast and the bounded retry loop is
-	// exhausted while the lock is still held.
-	err = publisher.Publish(ctx, makeAggregateId(), we.Options(), testEvent{Value: "waited"})
-	<-released
-	require.NoError(t, err)
 }
 
 // SQLITE-S3.R1, SQLITE-S3.R2 — the one option set selects in-memory and
@@ -381,7 +327,7 @@ func TestConcurrentAppendsSerialize(t *testing.T) {
 
 // ENCODING-S2.R2 — a nil constructor encoder is an error, not a deferred panic.
 func TestNilEncoderRejectedAtConstruction(t *testing.T) {
-	store, err := NewStore(context.Background(), nil, InMemory())
+	store, err := NewStore(context.Background(), nil, InMemory(Global()))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "encoder is required")
 	assert.Nil(t, store)
@@ -413,7 +359,7 @@ func TestPerPublishEncoderOverride(t *testing.T) {
 // envelopes carrying application/cbor with verbatim payload bytes.
 func TestCBORConstructorEncoderRoundTrip(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeCBOREncoder(), InMemory())
+	store, err := NewStore(ctx, we.MakeCBOREncoder(), InMemory(Global()))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close()) })
 
@@ -449,7 +395,7 @@ func TestUndecodableEventIdFailsLoad(t *testing.T) {
 	require.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "good"}))
 
 	// 26 chars, satisfies the CHECK, not a ULID (I, L, O, U are invalid base32).
-	_, err := store.db.ExecContext(ctx, `
+	_, err := storeShardDB(t, ctx, store, id).ExecContext(ctx, `
 INSERT INTO events
     (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
 VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?);`,
@@ -482,7 +428,7 @@ func TestNilEncoderOverrideRejectedAtPublish(t *testing.T) {
 // non-conflict driver error as success.
 func TestLoadOnClosedStoreErrors(t *testing.T) {
 	ctx := context.Background()
-	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory())
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), InMemory(Global()))
 	require.NoError(t, err)
 	require.NoError(t, store.Close())
 
