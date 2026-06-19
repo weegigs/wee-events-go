@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "wee_events_go",
+  "project_id": "2f51c49b-d85a-4d73-b361-a866d99d4635"
+}
