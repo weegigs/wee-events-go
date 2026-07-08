@@ -3,8 +3,10 @@ package sqlite
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -42,10 +44,13 @@ func TestTursoLiveRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 
-	id := we.AggregateId{Type: "live-test", Key: "1"}
+	// A unique key isolates repeated runs: the type-partition database is
+	// shared and best-effort deleted afterwards, so a failed cleanup must not
+	// fail the next run's per-aggregate assertions.
+	id := we.AggregateId{Type: "live-test", Key: strings.ToLower(ulid.Make().String())}
 	t.Cleanup(func() {
 		client := newHTTPTursoClient(cfg.APIToken)
-		_ = client.DeleteDatabase(context.Background(), cfg.Org, cfg.Prefix+"-live-test")
+		_ = client.DeleteDatabase(context.Background(), cfg.Org, sanitizeDatabaseName("live-test", cfg.Prefix))
 	})
 
 	require.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "live"}))

@@ -35,27 +35,21 @@ func newSqldProvisioner(adminURL, dataURL, authToken string) *sqldProvisioner {
 	}
 }
 
+// namespace derives the sqld namespace for a partition: a readable fragment
+// plus a stable hash of the original name, so distinct partition names that
+// sanitize alike (the identity grammar allows '.', '_', '@', '|', ':' and
+// mixed case in keys) stay on distinct namespaces.
 func (p *sqldProvisioner) namespace(name PartitionName) string {
 	if name.IsDefault() {
 		return "default"
 	}
-	return sanitizeSqldNamespace(name.String())
-}
-
-func sanitizeSqldNamespace(name string) string {
-	var b strings.Builder
-	for i := 0; i < len(name); i++ {
-		c := name[i]
-		switch {
-		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-':
-			b.WriteByte(c)
-		case c >= 'A' && c <= 'Z':
-			b.WriteByte(c - 'A' + 'a')
-		default:
-			b.WriteByte('-')
-		}
+	const fragmentLimit = 32
+	fragment := sanitizeFragment(name.String(), fragmentLimit)
+	hash := stableHashHex(name.String())
+	if fragment == "" {
+		return hash
 	}
-	return b.String()
+	return fragment + "-" + hash
 }
 
 func (p *sqldProvisioner) targetFor(namespace string) Target {

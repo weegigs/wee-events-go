@@ -36,12 +36,12 @@ func TestSqldProvisionerNamespaceAddressingSanitizesNamesForHosts(t *testing.T) 
 	p := newSqldProvisioner(srv.URL, "libsql://data.local:8080/", "tok")
 	_, err := p.EnsureTarget(context.Background(), PartitionName{name: "order:abc_def"})
 	require.NoError(t, err)
-	assert.Equal(t, "/v1/namespaces/order-abc-def/create", gotPath)
+	assert.Equal(t, "/v1/namespaces/order-abc-def-"+stableHashHex("order:abc_def")+"/create", gotPath)
 
 	tgt, ok, err := p.ExistingTarget(context.Background(), PartitionName{name: "order:abc_def"})
 	require.NoError(t, err)
 	assert.True(t, ok)
-	assert.Equal(t, "libsql://order-abc-def.data.local:8080", tgt.dsn)
+	assert.Equal(t, "libsql://order-abc-def-"+stableHashHex("order:abc_def")+".data.local:8080", tgt.dsn)
 }
 
 func TestSqldProvisionerEnsureTargetCreatesNamespace(t *testing.T) {
@@ -58,9 +58,9 @@ func TestSqldProvisionerEnsureTargetCreatesNamespace(t *testing.T) {
 	tgt, err := p.EnsureTarget(context.Background(), PartitionName{name: "order"})
 	require.NoError(t, err)
 	assert.Equal(t, http.MethodPost, gotMethod)
-	assert.Equal(t, "/v1/namespaces/order/create", gotPath)
+	assert.Equal(t, "/v1/namespaces/order-"+stableHashHex("order")+"/create", gotPath)
 	assert.Equal(t, "Bearer tok", gotAuth)
-	assert.Equal(t, "libsql://order.data.local", tgt.dsn)
+	assert.Equal(t, "libsql://order-"+stableHashHex("order")+".data.local", tgt.dsn)
 }
 
 func TestSqldProvisionerEnsureTargetSanitizesNamespacePath(t *testing.T) {
@@ -74,8 +74,8 @@ func TestSqldProvisionerEnsureTargetSanitizesNamespacePath(t *testing.T) {
 	p := newSqldProvisioner(srv.URL, "libsql://data.local", "")
 	tgt, err := p.EnsureTarget(context.Background(), PartitionName{name: "order:abc_def"})
 	require.NoError(t, err)
-	assert.Equal(t, "/v1/namespaces/order-abc-def/create", gotPath)
-	assert.Equal(t, "libsql://order-abc-def.data.local", tgt.dsn)
+	assert.Equal(t, "/v1/namespaces/order-abc-def-"+stableHashHex("order:abc_def")+"/create", gotPath)
+	assert.Equal(t, "libsql://order-abc-def-"+stableHashHex("order:abc_def")+".data.local", tgt.dsn)
 }
 
 func TestSqldProvisionerEnsureTargetToleratesConflict(t *testing.T) {
@@ -87,7 +87,7 @@ func TestSqldProvisionerEnsureTargetToleratesConflict(t *testing.T) {
 	p := newSqldProvisioner(srv.URL, "libsql://data.local", "")
 	tgt, err := p.EnsureTarget(context.Background(), PartitionName{name: "order"})
 	require.NoError(t, err)
-	assert.Equal(t, "libsql://order.data.local", tgt.dsn)
+	assert.Equal(t, "libsql://order-"+stableHashHex("order")+".data.local", tgt.dsn)
 }
 
 func TestSqldProvisionerEnsureTargetToleratesAlreadyExistsBadRequest(t *testing.T) {
@@ -100,7 +100,7 @@ func TestSqldProvisionerEnsureTargetToleratesAlreadyExistsBadRequest(t *testing.
 	p := newSqldProvisioner(srv.URL, "libsql://data.local", "")
 	tgt, err := p.EnsureTarget(context.Background(), PartitionName{name: "order"})
 	require.NoError(t, err)
-	assert.Equal(t, "libsql://order.data.local", tgt.dsn)
+	assert.Equal(t, "libsql://order-"+stableHashHex("order")+".data.local", tgt.dsn)
 }
 
 func TestSqldProvisionerEnsureTargetRejectsErrorStatus(t *testing.T) {
@@ -133,7 +133,7 @@ func TestSqldProvisionerEnsureTargetRetriesRetryableStatuses(t *testing.T) {
 	p := newSqldProvisioner(srv.URL, "libsql://data.local", "")
 	tgt, err := p.EnsureTarget(context.Background(), PartitionName{name: "order"})
 	require.NoError(t, err)
-	assert.Equal(t, "libsql://order.data.local", tgt.dsn)
+	assert.Equal(t, "libsql://order-"+stableHashHex("order")+".data.local", tgt.dsn)
 	assert.Equal(t, 3, attempts)
 }
 
@@ -192,6 +192,6 @@ func TestSqldProvisionerNamedTargetsReportsKnownNamespaces(t *testing.T) {
 	named, err := p.NamedTargets(context.Background())
 	require.NoError(t, err)
 	require.Len(t, named, 1)
-	assert.Equal(t, "order-abc", named[0].Name)
-	assert.Equal(t, "libsql://order-abc.data.local", named[0].Target.dsn)
+	assert.Equal(t, "order-abc-"+stableHashHex("order:abc"), named[0].Name)
+	assert.Equal(t, "libsql://order-abc-"+stableHashHex("order:abc")+".data.local", named[0].Target.dsn)
 }

@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,13 +18,13 @@ func newFakeTursoClient() *fakeTursoClient {
 	return &fakeTursoClient{created: map[string]string{}, existing: map[string]string{}}
 }
 
-func (f *fakeTursoClient) hostname(org, name string) string { return name + "-g.turso.io" }
+func (f *fakeTursoClient) hostname(name string) string { return name + "-g.turso.io" }
 
 func (f *fakeTursoClient) CreateDatabase(_ context.Context, org, group, name string) (tursoDatabase, bool, error) {
 	if host, ok := f.existing[name]; ok {
 		return tursoDatabase{Name: name, Hostname: host}, true, nil
 	}
-	host := f.hostname(org, name)
+	host := f.hostname(name)
 	f.created[name] = host
 	f.existing[name] = host
 	return tursoDatabase{Name: name, Hostname: host}, false, nil
@@ -48,30 +49,32 @@ func (f *fakeTursoClient) DeleteDatabase(_ context.Context, org, name string) er
 	return nil
 }
 
-func TestTursoProvisionerCreatesPrefixedDatabase(t *testing.T) {
+func TestTursoProvisionerCreatesHashSuffixedDatabase(t *testing.T) {
 	ctx := context.Background()
 	client := newFakeTursoClient()
 	prov := newTursoProvisioner(client, TursoConfig{Group: "g", Prefix: "we", GroupToken: "tok"})
 
 	tgt, err := prov.EnsureTarget(ctx, PartitionName{name: "order"})
 	require.NoError(t, err)
-	assert.Equal(t, "libsql://we-order-g.turso.io", tgt.dsn)
+	dbName := sanitizeDatabaseName("order", "we")
+	assert.Equal(t, "libsql://"+dbName+"-g.turso.io", tgt.dsn)
 	assert.Equal(t, "tok", tgt.authToken)
-	assert.Contains(t, client.created, "we-order")
+	assert.Contains(t, client.created, dbName)
 }
 
 func TestTursoProvisionerToleratesAlreadyExists(t *testing.T) {
 	ctx := context.Background()
 	client := newFakeTursoClient()
-	client.existing["we-order"] = "we-order-g.turso.io"
+	dbName := sanitizeDatabaseName("order", "we")
+	client.existing[dbName] = dbName + "-g.turso.io"
 	prov := newTursoProvisioner(client, TursoConfig{Group: "g", Prefix: "we", GroupToken: "tok"})
 
 	tgt, err := prov.EnsureTarget(ctx, PartitionName{name: "order"})
 	require.NoError(t, err)
-	assert.Equal(t, "libsql://we-order-g.turso.io", tgt.dsn)
+	assert.Equal(t, "libsql://"+dbName+"-g.turso.io", tgt.dsn)
 }
 
-func TestTursoProvisionerListsNamedTargetsAsLogicalNames(t *testing.T) {
+func TestTursoProvisionerListsNamedTargetsAsWireNames(t *testing.T) {
 	ctx := context.Background()
 	client := newFakeTursoClient()
 	prov := newTursoProvisioner(client, TursoConfig{Group: "g", Prefix: "we", GroupToken: "tok"})
@@ -84,11 +87,22 @@ func TestTursoProvisionerListsNamedTargetsAsLogicalNames(t *testing.T) {
 	named, err := prov.NamedTargets(ctx)
 	require.NoError(t, err)
 	require.Len(t, named, 2)
-	// NamedTargets must return the LOGICAL (strategy) names, not the prefixed
-	// platform database names — the named-catalog wire-name fallback derives the
-	// partition from NamedTarget.Name, so a prefixed name would yield the wrong
-	// partition.
+	// The platform name is lossy (fragment plus hash), so NamedTargets reports
+	// the WIRE name with the managed prefix stripped; the true logical name is
+	// recovered from partition metadata by the named catalog.
+	managed := namedDatabasePrefix("we") + "-"
 	names := []string{named[0].Name, named[1].Name}
-	assert.Contains(t, names, "order")
-	assert.Contains(t, names, "user")
+	assert.Contains(t, names, strings.TrimPrefix(sanitizeDatabaseName("order", "we"), managed))
+	assert.Contains(t, names, strings.TrimPrefix(sanitizeDatabaseName("user", "we"), managed))
+}
+
+func TestTursoProvisionerNamedTargetsSkipsUnmanagedDatabases(t *testing.T) {
+	ctx := context.Background()
+	client := newFakeTursoClient()
+	client.existing["unrelated-db"] = "unrelated-db-g.turso.io"
+	prov := newTursoProvisioner(client, TursoConfig{Group: "g", Prefix: "we", GroupToken: "tok"})
+
+	named, err := prov.NamedTargets(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, named)
 }

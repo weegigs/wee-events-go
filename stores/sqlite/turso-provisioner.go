@@ -33,31 +33,15 @@ func newTursoProvisioner(client tursoClient, config TursoConfig) *tursoProvision
 	return &tursoProvisioner{client: client, config: config, cache: map[string]Target{}}
 }
 
-// databaseName builds the platform database name for a partition. The default
-// partition uses the bare prefix.
+// databaseName builds the platform database name for a partition using the
+// wee-events.rs scheme: the default partition is the sanitized prefix alone;
+// named partitions carry a readable fragment plus a stable hash (see
+// remote-name.go).
 func (p *tursoProvisioner) databaseName(name PartitionName) string {
 	if name.IsDefault() {
-		return p.config.Prefix
+		return sanitizeDatabaseName("", p.config.Prefix)
 	}
-	return p.config.Prefix + "-" + sanitizeTursoName(name.String())
-}
-
-func sanitizeTursoName(name string) string {
-	// Turso database names allow lowercase alphanumerics and hyphens; map any
-	// other byte to a hyphen so arbitrary partition-by names remain valid.
-	var b strings.Builder
-	for i := 0; i < len(name); i++ {
-		c := name[i]
-		switch {
-		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-':
-			b.WriteByte(c)
-		case c >= 'A' && c <= 'Z':
-			b.WriteByte(c - 'A' + 'a')
-		default:
-			b.WriteByte('-')
-		}
-	}
-	return b.String()
+	return sanitizeDatabaseName(name.String(), p.config.Prefix)
 }
 
 func (p *tursoProvisioner) targetFor(db tursoDatabase) Target {
@@ -108,28 +92,31 @@ func (p *tursoProvisioner) ExistingTarget(ctx context.Context, name PartitionNam
 	return tgt, true, nil
 }
 
-// NamedTargets lists provisioned databases that belong to this backend and maps
-// each platform database name back to its LOGICAL partition name (stripping the
-// "<prefix>-" so the named-catalog's wire-name fallback derives the correct
-// partition). The bare-prefix database (the default partition) is reported with
-// an empty logical name.
+// NamedTargets lists provisioned databases that belong to this backend. The
+// reported Name is the WIRE name (the fragment-hash remainder after the
+// managed prefix); the hash makes the platform name lossy, so the true
+// logical partition name is recovered from each shard's partition metadata
+// (written by PrepareShard). The wire name only serves the named-catalog's
+// legacy fallback. The default-partition database is reported with an empty
+// name.
 func (p *tursoProvisioner) NamedTargets(ctx context.Context) ([]NamedTarget, error) {
 	databases, err := p.client.ListDatabases(ctx, p.config.Org)
 	if err != nil {
 		return nil, err
 	}
 
-	prefix := p.config.Prefix + "-"
+	defaultName := sanitizeDatabaseName("", p.config.Prefix)
+	namedPrefix := namedDatabasePrefix(p.config.Prefix) + "-"
 	var named []NamedTarget
 	for _, db := range databases {
 		switch {
-		case db.Name == p.config.Prefix:
+		case db.Name == defaultName:
 			named = append(named, NamedTarget{Name: "", Target: p.targetFor(db)})
-		case strings.HasPrefix(db.Name, prefix):
-			logical := strings.TrimPrefix(db.Name, prefix)
-			named = append(named, NamedTarget{Name: logical, Target: p.targetFor(db)})
+		case strings.HasPrefix(db.Name, namedPrefix):
+			wire := strings.TrimPrefix(db.Name, namedPrefix)
+			named = append(named, NamedTarget{Name: wire, Target: p.targetFor(db)})
 		default:
-			// A database that is not part of this backend's prefix namespace.
+			// A database that is not part of this backend's managed namespace.
 			continue
 		}
 	}
