@@ -1,6 +1,6 @@
 # Cross-Store Performance Metrics Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add a cross-store performance metrics suite that reports throughput, average, p50, p95, max, and standard deviation for comparable event-store workloads across Memory, SQLite, sqld, Turso, JetStream, Kurrent, and DynamoDB.
 
@@ -62,7 +62,7 @@ Canonical scale ladder:
 - Create: `we/event-store-metrics-suite.go`
 - Create: `we/event-store-metrics-suite_test.go`
 
-- [ ] **Step 1: Write failing tests for duration summaries**
+- [x] **Step 1: Write failing tests for duration summaries**
 
 Create `we/event-store-metrics-suite_test.go` with:
 
@@ -121,7 +121,7 @@ func TestPercentileDurationUsesNearestRank(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -131,7 +131,7 @@ mise exec -- go test ./we -run 'TestSummarizeDurations|TestPercentileDuration' -
 
 Expected: compile failure because `summarizeDurations` and `percentileDuration` do not exist.
 
-- [ ] **Step 3: Implement summary math**
+- [x] **Step 3: Implement summary math**
 
 Create `we/event-store-metrics-suite.go` with:
 
@@ -207,7 +207,7 @@ func durationMS(value time.Duration) float64 {
 }
 ```
 
-- [ ] **Step 4: Run tests and verify they pass**
+- [x] **Step 4: Run tests and verify they pass**
 
 Run:
 
@@ -223,7 +223,7 @@ Expected: `ok github.com/weegigs/wee-events-go/we`.
 - Modify: `we/event-store-metrics-suite.go`
 - Modify: `we/event-store-metrics-suite_test.go`
 
-- [ ] **Step 1: Add tests for config defaults and environment parsing**
+- [x] **Step 1: Add tests for config defaults and environment parsing**
 
 Append to `we/event-store-metrics-suite_test.go`:
 
@@ -259,7 +259,7 @@ func TestMetricsConfigRejectsInvalidWidths(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -269,7 +269,7 @@ mise exec -- go test ./we -run 'TestMetricsConfig' -count=1
 
 Expected: compile failure because config functions do not exist.
 
-- [ ] **Step 3: Implement config and metrics suite skeleton**
+- [x] **Step 3: Implement config and metrics suite skeleton**
 
 Extend `we/event-store-metrics-suite.go`:
 
@@ -347,7 +347,7 @@ func NewEventStoreMetricsSuite(ctx context.Context, store EventStore, config Eve
 }
 ```
 
-- [ ] **Step 4: Run config tests and verify they pass**
+- [x] **Step 4: Run config tests and verify they pass**
 
 Run:
 
@@ -363,7 +363,7 @@ Expected: `ok github.com/weegigs/wee-events-go/we`.
 - Modify: `we/event-store-metrics-suite.go`
 - Modify: `we/event-store-metrics-suite_test.go`
 
-- [ ] **Step 1: Add measured wave tests**
+- [x] **Step 1: Add measured wave tests**
 
 Append to `we/event-store-metrics-suite_test.go`:
 
@@ -396,7 +396,7 @@ func TestRunMeasuredWaveReportsFailuresWithoutDroppingDurations(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run measured wave tests and verify they fail**
+- [x] **Step 2: Run measured wave tests and verify they fail**
 
 Run:
 
@@ -406,7 +406,7 @@ mise exec -- go test ./we -run 'TestRunMeasuredWave' -count=1
 
 Expected: compile failure because `runMeasuredWave` does not exist.
 
-- [ ] **Step 3: Implement measured wave runner**
+- [x] **Step 3: Implement measured wave runner**
 
 Append to `we/event-store-metrics-suite.go`:
 
@@ -455,7 +455,7 @@ func runMeasuredWave(width int, op func(worker int) error) measuredWaveResult {
 }
 ```
 
-- [ ] **Step 4: Run measured wave tests and verify they pass**
+- [x] **Step 4: Run measured wave tests and verify they pass**
 
 Run:
 
@@ -470,7 +470,7 @@ Expected: `ok github.com/weegigs/wee-events-go/we`.
 **Files:**
 - Modify: `we/event-store-metrics-suite.go`
 
-- [ ] **Step 1: Implement suite `Run` and write-fanout workloads**
+- [x] **Step 1: Implement suite `Run` and write-fanout workloads**
 
 Append to `we/event-store-metrics-suite.go`:
 
@@ -539,7 +539,7 @@ func (s *EventStoreMetricsSuite) mixedFanout(width int) func(b *testing.B) {
 }
 ```
 
-- [ ] **Step 2: Implement fixed-wave execution and reporting**
+- [x] **Step 2: Implement fixed-wave execution and reporting**
 
 Append to `we/event-store-metrics-suite.go`:
 
@@ -625,7 +625,7 @@ func seedMetricsAggregate(b *testing.B, ctx context.Context, store EventStore, i
 }
 ```
 
-- [ ] **Step 3: Run all `we` tests**
+- [x] **Step 3: Run all `we` tests**
 
 Run:
 
@@ -641,7 +641,7 @@ Expected: `ok github.com/weegigs/wee-events-go/we`.
 - Modify: `we/event-store-benchmark-suite_test.go`
 - Modify: `stores/sqlite/store_bench_test.go`
 
-- [ ] **Step 1: Add helper to run metrics suite from store packages**
+- [x] **Step 1: Add helper to run metrics suite from store packages**
 
 Append to `we/event-store-metrics-suite.go`:
 
@@ -655,7 +655,7 @@ func NewEventStoreMetricsSuiteFromEnv(ctx context.Context, store EventStore) (*E
 }
 ```
 
-- [ ] **Step 2: Add memory metrics benchmark**
+- [x] **Step 2: Add memory metrics benchmark**
 
 Modify `we/event-store-benchmark-suite_test.go`:
 
@@ -670,7 +670,7 @@ func BenchmarkMemoryMetrics(b *testing.B) {
 }
 ```
 
-- [ ] **Step 3: Add SQLite metrics helpers and local benchmarks**
+- [x] **Step 3: Add SQLite metrics helpers and local benchmarks**
 
 Append to `stores/sqlite/store_bench_test.go`:
 
@@ -716,7 +716,7 @@ func BenchmarkMetricsSqliteLocalByType(b *testing.B) {
 }
 ```
 
-- [ ] **Step 4: Run memory and local SQLite metrics smoke tests**
+- [x] **Step 4: Run memory and local SQLite metrics smoke tests**
 
 Run:
 
@@ -731,7 +731,7 @@ Expected: `PASS`, with custom metric columns including `ops/s`, `wave_p95_ms`, a
 **Files:**
 - Modify: `stores/sqlite/store_bench_test.go`
 
-- [ ] **Step 1: Add sqld metrics benchmarks**
+- [x] **Step 1: Add sqld metrics benchmarks**
 
 Append to `stores/sqlite/store_bench_test.go`:
 
@@ -765,7 +765,7 @@ func BenchmarkMetricsSqliteSqldByType(b *testing.B) {
 }
 ```
 
-- [ ] **Step 2: Add Turso metrics benchmarks**
+- [x] **Step 2: Add Turso metrics benchmarks**
 
 Append to `stores/sqlite/store_bench_test.go`:
 
@@ -799,7 +799,7 @@ func BenchmarkMetricsSqliteTursoByType(b *testing.B) {
 }
 ```
 
-- [ ] **Step 3: Run sqld metrics smoke test**
+- [x] **Step 3: Run sqld metrics smoke test**
 
 Run:
 
@@ -809,7 +809,7 @@ WE_METRICS_WIDTHS=1,10 WE_METRICS_WAVES=3 mise exec -- go test -run '^$' -bench 
 
 Expected: `PASS`, with sqld metrics. Confirm that `BenchmarkMetricsSqliteSqldByType/write_fanout/spread/10` reports better `ops/s` than `concentrated/10`.
 
-- [ ] **Step 4: Run Turso metrics smoke test with quota-safe widths**
+- [x] **Step 4: Run Turso metrics smoke test with quota-safe widths**
 
 Run:
 
@@ -826,7 +826,7 @@ Expected: `PASS`, or a Turso API quota/configuration error that clearly names th
 - Modify: `stores/kurrent/event-store_bench_test.go`
 - Modify: `stores/ds/event-store_bench_test.go`
 
-- [ ] **Step 1: Add JetStream metrics benchmark**
+- [x] **Step 1: Add JetStream metrics benchmark**
 
 Modify `stores/jetstream/jetstream_bench_test.go`:
 
@@ -853,7 +853,7 @@ func newBenchmarkStore(b *testing.B, ctx context.Context) (we.EventStore, func()
 }
 ```
 
-- [ ] **Step 2: Add Kurrent metrics benchmark**
+- [x] **Step 2: Add Kurrent metrics benchmark**
 
 Modify `stores/kurrent/event-store_bench_test.go`:
 
@@ -872,7 +872,7 @@ func BenchmarkMetricsKurrent(b *testing.B) {
 
 If needed, extract the existing Kurrent benchmark setup into a `newBenchmarkStore` helper using the same pattern as JetStream.
 
-- [ ] **Step 3: Add Dynamo metrics benchmark**
+- [x] **Step 3: Add Dynamo metrics benchmark**
 
 Modify `stores/ds/event-store_bench_test.go`:
 
@@ -891,7 +891,7 @@ func BenchmarkMetricsDynamo(b *testing.B) {
 
 If needed, extract the existing Dynamo benchmark setup into a `newBenchmarkStore` helper using the same pattern as JetStream.
 
-- [ ] **Step 4: Run Docker-backed metrics smoke test**
+- [x] **Step 4: Run Docker-backed metrics smoke test**
 
 Run:
 
@@ -906,7 +906,7 @@ Expected: `PASS`, with metrics columns for each store.
 **Files:**
 - Modify: `justfile`
 
-- [ ] **Step 1: Add metrics recipes**
+- [x] **Step 1: Add metrics recipes**
 
 Modify `justfile`:
 
@@ -931,7 +931,7 @@ bench-metrics-all widths='1,10,100' waves='30':
     just bench-metrics-turso '{{widths}}' '{{waves}}'
 ```
 
-- [ ] **Step 2: Verify recipe listing**
+- [x] **Step 2: Verify recipe listing**
 
 Run:
 
@@ -941,7 +941,7 @@ mise exec -- just --list | rg 'bench-metrics'
 
 Expected: all four new recipes appear.
 
-- [ ] **Step 3: Run local metrics recipe smoke test**
+- [x] **Step 3: Run local metrics recipe smoke test**
 
 Run:
 
@@ -957,7 +957,7 @@ Expected: `PASS` for memory and local SQLite metrics.
 - Modify: `documents/performance-benchmarks.md`
 - Modify: `documents/sqlite-performance-state-2026-06-12.md`
 
-- [ ] **Step 1: Add metrics section to performance docs**
+- [x] **Step 1: Add metrics section to performance docs**
 
 Add this section near the top of `documents/performance-benchmarks.md`:
 
@@ -1000,7 +1000,7 @@ custom metrics provide the useful comparison:
 ```
 ```
 
-- [ ] **Step 2: Update SQLite performance state doc**
+- [x] **Step 2: Update SQLite performance state doc**
 
 In `documents/sqlite-performance-state-2026-06-12.md`, add:
 
@@ -1011,7 +1011,7 @@ single-run `ns/op` alone. The headline comparison should include `ops/s`,
 only when account quota blocks width 100.
 ```
 
-- [ ] **Step 3: Verify docs render as plain Markdown**
+- [x] **Step 3: Verify docs render as plain Markdown**
 
 Run:
 
@@ -1026,7 +1026,7 @@ Expected: packages compile; docs are plain Markdown and require no build step.
 **Files:**
 - All files touched above.
 
-- [ ] **Step 1: Run unit tests**
+- [x] **Step 1: Run unit tests**
 
 Run:
 
@@ -1036,7 +1036,7 @@ mise exec -- go test ./we ./stores/sqlite -count=1
 
 Expected: `PASS`.
 
-- [ ] **Step 2: Run local metrics smoke**
+- [x] **Step 2: Run local metrics smoke**
 
 Run:
 
@@ -1046,7 +1046,7 @@ mise exec -- just bench-metrics 1,10 3
 
 Expected: `PASS`; output includes `ops/s`, `wave_p95_ms`, `op_p95_ms`.
 
-- [ ] **Step 3: Run Docker-backed metrics smoke**
+- [x] **Step 3: Run Docker-backed metrics smoke**
 
 Run:
 
@@ -1056,7 +1056,7 @@ mise exec -- just bench-metrics-integration 1,10 3
 
 Expected: `PASS`; no Testcontainers port race because recipe uses `go test -p 1`.
 
-- [ ] **Step 4: Run Turso metrics smoke**
+- [x] **Step 4: Run Turso metrics smoke**
 
 Run:
 
@@ -1066,7 +1066,7 @@ mise exec -- just bench-metrics-turso 1,10 3
 
 Expected: `PASS` if Turso env and quota are available. If it fails with missing Turso env, report that `check-turso-env` correctly failed. If it fails with Turso quota, clean databases matching `TURSO_DB_PREFIX-*` and retry once.
 
-- [ ] **Step 5: Run existing regression benchmarks that guard current behavior**
+- [x] **Step 5: Run existing regression benchmarks that guard current behavior**
 
 Run:
 
@@ -1076,7 +1076,7 @@ mise exec -- go test -run '^$' -bench '^BenchmarkShardFanoutSqld$' -benchmem -be
 
 Expected: `PASS`; `many_shards/100` remains materially faster than `one_shard/100`.
 
-- [ ] **Step 6: Check worktree diff**
+- [x] **Step 6: Check worktree diff**
 
 Run:
 

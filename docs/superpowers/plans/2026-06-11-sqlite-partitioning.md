@@ -1,6 +1,6 @@
 # SQLite Partitioning Layer Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Port the wee-events.rs SQLite partitioning layer to Go — five partition strategies, five backends (in-memory, local multi-file, sqld-default, sqld-namespaced, Turso platform), aggregate enumeration, and a uniform single-owner-per-shard concurrency model that resolves the go-libsql `SQLITE_MISUSE` concurrency defect.
 
@@ -57,7 +57,7 @@ Modified: `stores/sqlite/store_test.go`, `stores/sqlite/store_bench_test.go`. De
 - Create: `stores/sqlite/partition.go`
 - Test: `stores/sqlite/partition_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -104,12 +104,12 @@ func we_AggregateId(t, k string) we.AggregateId { return we.AggregateId{Type: t,
 
 and import `"github.com/weegigs/wee-events-go/we"`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestPartition -v`
 Expected: FAIL — `undefined: DefaultPartition` etc.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -158,12 +158,12 @@ func Direct(id we.AggregateId) ReadPlan  { return ReadPlan{kind: readDirect, id:
 func Skip() ReadPlan                     { return ReadPlan{kind: readSkip} }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run "TestPartition|TestReadPlan" -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/partition.go stores/sqlite/partition_test.go -m "Added the Partition value type and ReadPlan variants for the SQLite partitioning layer"
@@ -177,7 +177,7 @@ jj split stores/sqlite/partition.go stores/sqlite/partition_test.go -m "Added th
 - Create: `stores/sqlite/strategy.go`
 - Test: `stores/sqlite/strategy_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -249,12 +249,12 @@ func TestByTypeNameRoundTripsProperty(t *testing.T) {
 
 (Delete the stray empty `TestByAggregatePartitionsPerAggregate` declaration if a linter objects; it is a placeholder — replace with nothing.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run "Strategy|ByType|ByAggregate|PartitionBy" -v`
 Expected: FAIL — `undefined: Global`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -361,12 +361,12 @@ func (b *partitionBy) ReadPlan(Partition) ReadPlan { return ScanAll() }
 
 Verify `we.IdentityTypeGen`, `we.EncodedAggregateId`, and `(EncodedAggregateId).Decode` exist (`we/identity-gen.go`, `we/aggregate-id.go`). If `IdentityTypeGen` is named differently, adjust the property test import accordingly.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run "Strategy|ByType|ByAggregate|PartitionBy" -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/strategy.go stores/sqlite/strategy_test.go -m "Added the partition strategy interface with global, by-type, by-aggregate, and partition-by strategies"
@@ -380,7 +380,7 @@ jj split stores/sqlite/strategy.go stores/sqlite/strategy_test.go -m "Added the 
 - Create: `stores/sqlite/strategy-hashed.go`
 - Test: `stores/sqlite/strategy-hashed_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 The vectors below were computed from the Rust `hash_aggregate_id` (FNV-1a 32-bit, offset `0x811c9dc5`, prime `0x01000193`, over `type ++ ':' ++ key`). They pin cross-implementation bucket parity.
 
@@ -434,12 +434,12 @@ func TestHashedRejectsZeroBuckets(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestHashed -v`
 Expected: FAIL — `undefined: fnv1aAggregate`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -508,12 +508,12 @@ func (h *hashed) PartitionFromName(name string) (Partition, error) {
 func (h *hashed) ReadPlan(Partition) ReadPlan { return ScanAll() }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestHashed -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/strategy-hashed.go stores/sqlite/strategy-hashed_test.go -m "Added the hashed partition strategy with FNV-1a bucketing pinned to the Rust vectors"
@@ -530,7 +530,7 @@ jj split stores/sqlite/strategy-hashed.go stores/sqlite/strategy-hashed_test.go 
 
 > Note: the existing `schema` slice in `store.go` defines the `events` table and its unique index. Move that slice verbatim into `metadata.go` and extend it with the partition-metadata table, so all DDL lives in one place. Leave the rest of `store.go` untouched in this task (it is rewritten in Task 10).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -588,12 +588,12 @@ func TestEnsurePartitionNameRejectsMismatch(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run "TestMigrate|TestEnsurePartition" -v`
 Expected: FAIL — `undefined: migrate` / `undefined: ensurePartitionName`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Move the existing `schema` slice from `store.go` into `metadata.go` and add the metadata table + helpers:
 
@@ -683,12 +683,12 @@ func readPartitionName(ctx context.Context, db *sql.DB) (string, error) {
 
 Delete the now-duplicated `schema` var from `store.go` (the old one at the top of the file). Leave the old `Store.prepare` referencing `schema` — it still resolves to the moved var. `store.go` is rewritten in Task 10 regardless.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run "TestMigrate|TestEnsurePartition" -v && mise exec -- go build ./stores/sqlite/`
 Expected: PASS and clean build.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/metadata.go stores/sqlite/store.go stores/sqlite/metadata_test.go -m "Added schema v2 partition-metadata table and idempotent logical-name recording"
@@ -702,7 +702,7 @@ jj split stores/sqlite/metadata.go stores/sqlite/store.go stores/sqlite/metadata
 - Create: `stores/sqlite/catalog.go`
 - Test: `stores/sqlite/catalog_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -725,12 +725,12 @@ func TestTargetRedactionToken(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestTarget -v`
 Expected: FAIL — `undefined: Target`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -775,12 +775,12 @@ type Backend struct {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestTarget -v && mise exec -- go build ./stores/sqlite/`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/catalog.go stores/sqlite/catalog_test.go -m "Added the Target type, Backend pairing, and PartitionCatalog interface"
@@ -794,7 +794,7 @@ jj split stores/sqlite/catalog.go stores/sqlite/catalog_test.go -m "Added the Ta
 - Create: `stores/sqlite/catalog-local.go`
 - Test: `stores/sqlite/catalog-local_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -875,12 +875,12 @@ func openTarget(t *testing.T, tgt Target) *sql.DB {
 
 with imports `"database/sql"`.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestLocalCatalog -v`
 Expected: FAIL — `undefined: newLocalCatalog`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -981,12 +981,12 @@ func (c *localCatalog) PrepareShard(ctx context.Context, p Partition, db *sql.DB
 
 Verify `base32(NoPadding)` of `"order"` is `N5XWEYLS`; if the test's expected filename differs, trust the encoder output and update the test literal (it is deterministic).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestLocalCatalog -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/catalog-local.go stores/sqlite/catalog-local_test.go -m "Added the local catalog with single-file and base32 multi-file layouts and filesystem discovery"
@@ -1000,7 +1000,7 @@ jj split stores/sqlite/catalog-local.go stores/sqlite/catalog-local_test.go -m "
 - Create: `stores/sqlite/catalog-single.go`
 - Test: `stores/sqlite/catalog-single_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -1041,12 +1041,12 @@ func TestSingleTargetExistingAlwaysPresent(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestSingleTarget -v`
 Expected: FAIL — `undefined: newSingleTargetCatalog`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -1082,12 +1082,12 @@ func (c *singleTargetCatalog) PrepareShard(context.Context, Partition, *sql.DB) 
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestSingleTarget -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/catalog-single.go stores/sqlite/catalog-single_test.go -m "Added the single-target catalog for the in-memory and sqld-default backends"
@@ -1101,7 +1101,7 @@ jj split stores/sqlite/catalog-single.go stores/sqlite/catalog-single_test.go -m
 - Create: `stores/sqlite/catalog-named.go`, `stores/sqlite/provisioner-sqld.go`
 - Test: `stores/sqlite/catalog-named_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -1175,12 +1175,12 @@ func TestNamedCatalogPartitionsRoundTripThroughStrategy(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestNamedCatalog -v`
 Expected: FAIL — `undefined: PartitionName`.
 
-- [ ] **Step 3a: Write the named catalog and provisioner interface (`catalog-named.go`)**
+- [x] **Step 3a: Write the named catalog and provisioner interface (`catalog-named.go`)**
 
 ```go
 package sqlite
@@ -1295,7 +1295,7 @@ func (c *namedTargetCatalog) PrepareShard(ctx context.Context, p Partition, db *
 }
 ```
 
-- [ ] **Step 3b: Write the sqld provisioner (`provisioner-sqld.go`)**
+- [x] **Step 3b: Write the sqld provisioner (`provisioner-sqld.go`)**
 
 ```go
 package sqlite
@@ -1393,12 +1393,12 @@ func (p *sqldProvisioner) NamedTargets(_ context.Context) ([]NamedTarget, error)
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestNamedCatalog -v && mise exec -- go build ./stores/sqlite/`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/catalog-named.go stores/sqlite/provisioner-sqld.go stores/sqlite/catalog-named_test.go -m "Added the named-target catalog, provisioner interface, and sqld namespace provisioner"
@@ -1415,7 +1415,7 @@ jj split stores/sqlite/catalog-named.go stores/sqlite/provisioner-sqld.go stores
 
 > Note: the shard reuses the existing publish/load machinery. Move these from `store.go` into `shard.go` (or keep them in `store.go` — either is fine as long as they compile): `publishOnce`, `currentSequence`, `checkExpectedRevision`, `encodeEvents`, `eventRow`, `nullable`, `loadEvents` (extract the body of the old `Load` into a free function `loadEvents(ctx, db, id)`), plus the `applyBusyTimeout` call. The shard owns a `*sql.DB` (not `*sql.Conn`); adapt `publishOnce`/`currentSequence` to take `*sql.DB` and call `db.Conn`/`ExecContext` as today.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -1486,12 +1486,12 @@ func TestShardRespectsContextCancellation(t *testing.T) {
 
 `testEvent` already exists in `store_test.go`; its `EventTypeOf` resolves to `test-event` only if the type name maps that way — adjust the asserted `EventType` literal to whatever `we.EventTypeOf(testEvent{})` actually returns (run once and read the value).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestShard -v`
 Expected: FAIL — `undefined: newShard`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -1651,12 +1651,12 @@ func publishRows(ctx context.Context, db *sql.DB, busyTimeout time.Duration, id 
 
 Adapt `publishOnce` and `currentSequence` signatures to `(ctx, db *sql.DB, busyTimeout, …)` doing `db.Conn(ctx)` internally as the old code did. Add `import "errors"`.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestShard -race -v`
 Expected: PASS, no race.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/shard.go stores/sqlite/store.go stores/sqlite/shard_test.go -m "Added the single-owner shard actor that serialises load and publish over one connection"
@@ -1673,7 +1673,7 @@ jj split stores/sqlite/shard.go stores/sqlite/store.go stores/sqlite/shard_test.
 
 This task replaces the old single-database `Store`, `config`, `NewStore`, and the `InMemory`/`LocalFile`/`Remote`/`BusyTimeout` Options with the partitioned store and backend constructors. It is the task where the old API is deleted, because its last callers (`store_test.go`, `store_bench_test.go`) are migrated in the same change.
 
-- [ ] **Step 1: Update the test helpers to the target API (failing)**
+- [x] **Step 1: Update the test helpers to the target API (failing)**
 
 In `store_test.go`, replace the two helpers:
 
@@ -1697,12 +1697,12 @@ func newFileStore(t *testing.T, path string) *Store {
 }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `mise exec -- go build ./stores/sqlite/`
 Expected: FAIL — `too many arguments to InMemory` / `undefined: Local`.
 
-- [ ] **Step 3: Write the new `store.go`**
+- [x] **Step 3: Write the new `store.go`**
 
 ```go
 package sqlite
@@ -1895,7 +1895,7 @@ func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*sha
 
 Add `import "database/sql"`. Keep `defaultBusyTimeout`, `busyRetries`, `redactToken`, `isBusy`, `isUniqueViolation`, `newEventID`, `revisionForSequence`, `sequenceForRevision`, `timestampFromEventID`, `applyBusyTimeout`, and the relocated `loadEvents`/`publishOnce`/`currentSequence`/`checkExpectedRevision`/`encodeEvents`/`eventRow`/`nullable` (from Task 9). Delete the old `config`, Options (`InMemory`/`LocalFile`/`Remote`/`BusyTimeout`), the old `NewStore`, `Store.prepare`, and the struct fields they used. `applyPragmas` collapses into `applyBusyTimeout` if WAL/other pragmas were set there — preserve any non-busy pragmas by calling them inside `openShard` after `migrate`.
 
-- [ ] **Step 4: Write backend constructors at the end of `store.go`**
+- [x] **Step 4: Write backend constructors at the end of `store.go`**
 
 ```go
 // Local builds a backend backed by local SQLite files under root. Global uses
@@ -1927,12 +1927,12 @@ func SqldNamespaced(adminURL, dataURL, authToken string, strategy NamingStrategy
 
 (`Turso` constructor is added in Task 12.)
 
-- [ ] **Step 5: Run the validation suite to verify it passes**
+- [x] **Step 5: Run the validation suite to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run "ValidationSuite|TestLoadInitial|Shard|Catalog|Strategy|Hashed|Migrate|Target" -v`
 Expected: PASS — in-memory and local-file conformance green on the new store.
 
-- [ ] **Step 6: Lint and commit**
+- [x] **Step 6: Lint and commit**
 
 Run: `mise exec -- gofmt -s -w stores/sqlite/ && mise exec -- golangci-lint run ./stores/sqlite/...`
 Expected: 0 issues.
@@ -1949,7 +1949,7 @@ jj split stores/sqlite/store.go stores/sqlite/store_test.go -m "Rewrote the SQLi
 - Create: `stores/sqlite/enumerate.go`
 - Test: `stores/sqlite/enumerate_test.go`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```go
 package sqlite
@@ -2015,12 +2015,12 @@ func TestEnumerateByAggregateUsesDirect(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestEnumerate -v`
 Expected: FAIL — `undefined: (*Store).EnumerateAggregates`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 ```go
 package sqlite
@@ -2163,12 +2163,12 @@ func scanAggregates(ctx context.Context, db *sql.DB, plan ReadPlan) ([]we.Aggreg
 
 Add `import "fmt"`. Remove the stray `sort.StringSlice` line from the test if the linter flags it.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestEnumerate -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/enumerate.go stores/sqlite/enumerate_test.go -m "Added aggregate enumeration with per-partition read-plan dispatch"
@@ -2183,7 +2183,7 @@ jj split stores/sqlite/enumerate.go stores/sqlite/enumerate_test.go -m "Added ag
 - Modify: `stores/sqlite/store.go` (add `Turso` constructor + `TursoConfig`)
 - Test: `stores/sqlite/turso-provisioner_test.go`
 
-- [ ] **Step 1: Write the failing test (against the fake client)**
+- [x] **Step 1: Write the failing test (against the fake client)**
 
 ```go
 package sqlite
@@ -2235,12 +2235,12 @@ func TestTursoProvisionerListsNamedTargets(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestTursoProvisioner -v`
 Expected: FAIL — `undefined: newFakeTursoClient`.
 
-- [ ] **Step 3a: Write the client interface, HTTP impl, and fake (`turso-client.go`)**
+- [x] **Step 3a: Write the client interface, HTTP impl, and fake (`turso-client.go`)**
 
 ```go
 package sqlite
@@ -2425,7 +2425,7 @@ func (f *fakeTursoClient) DeleteDatabase(_ context.Context, org, name string) er
 
 (The fake's `hostname` hardcodes `-g` to match the test's expected DSN; the group name `g` is incidental.)
 
-- [ ] **Step 3b: Write the Turso provisioner (`turso-provisioner.go`)**
+- [x] **Step 3b: Write the Turso provisioner (`turso-provisioner.go`)**
 
 ```go
 package sqlite
@@ -2556,7 +2556,7 @@ func (p *tursoProvisioner) NamedTargets(ctx context.Context) ([]NamedTarget, err
 }
 ```
 
-- [ ] **Step 3c: Add the `Turso` constructor to `store.go`**
+- [x] **Step 3c: Add the `Turso` constructor to `store.go`**
 
 ```go
 // Turso builds a backend that provisions one Turso platform database per
@@ -2567,12 +2567,12 @@ func Turso(config TursoConfig, strategy NamingStrategy) Backend {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestTursoProvisioner -v && mise exec -- go build ./stores/sqlite/`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/turso-client.go stores/sqlite/turso-provisioner.go stores/sqlite/store.go stores/sqlite/turso-provisioner_test.go -m "Added the Turso platform client, provisioner, and Turso backend constructor"
@@ -2586,7 +2586,7 @@ jj split stores/sqlite/turso-client.go stores/sqlite/turso-provisioner.go stores
 - Modify: `stores/sqlite/store_test.go`
 - Create: `stores/sqlite/conformance_test.go`, `stores/sqlite/concurrency_test.go`
 
-- [ ] **Step 1: Write the conformance matrix and stress test**
+- [x] **Step 1: Write the conformance matrix and stress test**
 
 `conformance_test.go`:
 
@@ -2696,12 +2696,12 @@ func TestConcurrentLoadPublishNoMisuse(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run to verify (these should PASS immediately — the implementation exists)**
+- [x] **Step 2: Run to verify (these should PASS immediately — the implementation exists)**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run "ValidationSuiteLocal|SharedBackingLocal|ConcurrentLoadPublish" -race -v`
 Expected: PASS across all strategies, no race, no `SQLITE_MISUSE`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 jj split stores/sqlite/conformance_test.go stores/sqlite/concurrency_test.go -m "Added the per-strategy conformance matrix, shared-backing test, and the concurrency regression gate"
@@ -2715,7 +2715,7 @@ jj split stores/sqlite/conformance_test.go stores/sqlite/concurrency_test.go -m 
 - Modify: `stores/sqlite/store_bench_test.go`
 - Create: `stores/sqlite/sqld_integration_test.go`, `stores/sqlite/turso_live_test.go`
 
-- [ ] **Step 1: Rewrite the benchmark entry points**
+- [x] **Step 1: Rewrite the benchmark entry points**
 
 ```go
 package sqlite
@@ -2757,12 +2757,12 @@ func BenchmarkSqliteLocalPartitionBy(b *testing.B) {
 }
 ```
 
-- [ ] **Step 2: Verify benchmarks compile and a leaf runs**
+- [x] **Step 2: Verify benchmarks compile and a leaf runs**
 
 Run: `mise exec -- go test -run '^$' -bench 'BenchmarkSqliteLocalByType/creation/single$' -benchtime 1x ./stores/sqlite`
 Expected: one PASS line, no failure.
 
-- [ ] **Step 3: Write the live Turso test (env-guarded)**
+- [x] **Step 3: Write the live Turso test (env-guarded)**
 
 `turso_live_test.go`:
 
@@ -2826,12 +2826,12 @@ func TestTursoLiveRoundTrip(t *testing.T) {
 
 `sqld_integration_test.go`: a placeholder is NOT acceptable; if a containerised sqld with the namespace admin API is available in the test environment, mirror `kurrent`'s testcontainer setup. If the test environment cannot run sqld with admin enabled, omit this file and note the gap in the final task's report rather than committing a skipped shell. Decision: **omit `sqld_integration_test.go`** in this plan; sqld-namespaced is covered by the named-catalog unit tests (Task 8) against the fake provisioner, and the live Turso test exercises the named-target path end to end. Record this as a known coverage boundary in the feature doc.
 
-- [ ] **Step 4: Run the live test (it will run with mise env, or skip without)**
+- [x] **Step 4: Run the live test (it will run with mise env, or skip without)**
 
 Run: `mise exec -- go test ./stores/sqlite/ -run TestTursoLiveRoundTrip -v`
 Expected: PASS (if `TURSO_*` present) or SKIP.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split stores/sqlite/store_bench_test.go stores/sqlite/turso_live_test.go -m "Added per-strategy benchmarks and the env-guarded live Turso round-trip test"
@@ -2845,7 +2845,7 @@ jj split stores/sqlite/store_bench_test.go stores/sqlite/turso_live_test.go -m "
 - Create: `documents/adr/0013-sqlite-single-owner-shards.md`, `documents/features/10-sqlite-partitioning.md`
 - Modify: `documents/adr/README.md`, `documents/roadmap.md`
 
-- [ ] **Step 1: Write ADR-0013**
+- [x] **Step 1: Write ADR-0013**
 
 ```markdown
 # ADR-0013 — SQLite store: single owner per shard, partitioned by strategy
@@ -2902,7 +2902,7 @@ would require a new ADR if it breaks the uniform model.
   remote libSQL (ADR-0003); switching drivers is a larger, separate decision.
 ```
 
-- [ ] **Step 2: Add the index rows**
+- [x] **Step 2: Add the index rows**
 
 In `documents/adr/README.md`, after the 0012 row:
 
@@ -2916,7 +2916,7 @@ In `documents/roadmap.md`, after the 0012 row:
 | [0013](adr/0013-sqlite-single-owner-shards.md) | SQLite store: single owner per shard, partitioned by strategy | Accepted |
 ```
 
-- [ ] **Step 3: Write the feature document**
+- [x] **Step 3: Write the feature document**
 
 ```markdown
 # Feature 10 — SQLite partitioning layer
@@ -2954,12 +2954,12 @@ container test is out of scope. The Turso platform path is verified end to end
 by an env-guarded live test (TURSO_* in the mise environment).
 ```
 
-- [ ] **Step 4: Verify the docs build (links resolve, markdown valid)**
+- [x] **Step 4: Verify the docs build (links resolve, markdown valid)**
 
 Run: `mise exec -- go build ./... && ls documents/adr/0013-sqlite-single-owner-shards.md documents/features/10-sqlite-partitioning.md`
 Expected: both files listed, build clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 jj split documents/adr/0013-sqlite-single-owner-shards.md documents/adr/README.md documents/roadmap.md documents/features/10-sqlite-partitioning.md -m "Recorded ADR-0013 and feature 10 for the SQLite partitioning layer and single-owner-per-shard model"
@@ -2971,27 +2971,27 @@ jj split documents/adr/0013-sqlite-single-owner-shards.md documents/adr/README.m
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Full unit suite under race**
+- [x] **Step 1: Full unit suite under race**
 
 Run: `mise exec -- go test -race ./stores/sqlite/... ./we/...`
 Expected: all PASS.
 
-- [ ] **Step 2: Lint and vet the whole module**
+- [x] **Step 2: Lint and vet the whole module**
 
 Run: `mise exec -- go vet ./... && mise exec -- golangci-lint run`
 Expected: 0 issues.
 
-- [ ] **Step 3: Benchmark smoke — the regression gate**
+- [x] **Step 3: Benchmark smoke — the regression gate**
 
 Run: `mise exec -- go test -run '^$' -bench 'BenchmarkSqliteLocal' -benchtime 1x ./stores/sqlite 2>&1 | grep -E "FAIL|ns/op" | head -40`
 Expected: every leaf shows `ns/op`, zero `FAIL` lines — the local-file concurrency defect is resolved across all strategies.
 
-- [ ] **Step 4: Confirm the old API is gone**
+- [x] **Step 4: Confirm the old API is gone**
 
 Run: `mise exec -- sh -c 'grep -rn "LocalFile(\|func InMemory()\|func Remote(\|func BusyTimeout(" stores/ samples/ || echo "old API removed"'`
 Expected: `old API removed`.
 
-- [ ] **Step 5: Final commit if any formatting changed**
+- [x] **Step 5: Final commit if any formatting changed**
 
 ```bash
 mise exec -- gofmt -s -w stores/sqlite/

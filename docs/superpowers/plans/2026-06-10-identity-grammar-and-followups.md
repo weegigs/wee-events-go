@@ -1,6 +1,6 @@
 # Identity Grammar v2 + Outstanding Follow-ups Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Workers NEVER run jj/git — the coordinator serialises every `jj split` after review.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking. Workers NEVER run jj/git — the coordinator serialises every `jj split` after review.
 
 **Goal:** Formalise the aggregate identity grammar (v2) as a shared normative spec with conformance vectors consumed by Go and Rust, then clear the remaining roadmap follow-ups (envelope opacity, Kurrent reconnect investigation, Restate harness check).
 
@@ -24,7 +24,7 @@
 - Create: `documents/writing-documents.md`
 - Modify: `documents/conventions.md` (append section at end)
 
-- [ ] **Step 1: Write `documents/writing-documents.md`** with exactly this content:
+- [x] **Step 1: Write `documents/writing-documents.md`** with exactly this content:
 
 ````markdown
 # Writing Documents
@@ -98,7 +98,7 @@ regenerable-content rules still apply; the cut-from-the-bottom rule does not.
 6. Has detail moved down or out?
 ````
 
-- [ ] **Step 2: Append to `documents/conventions.md`** (at end of file):
+- [x] **Step 2: Append to `documents/conventions.md`** (at end of file):
 
 ```markdown
 
@@ -110,7 +110,7 @@ third-person voice. Normative reference documents (specs, grammars) optimise
 for precision and lookup instead — see the exception there.
 ```
 
-- [ ] **Step 3: Coordinator commits**
+- [x] **Step 3: Coordinator commits**
 
 ```bash
 jj split documents/writing-documents.md documents/conventions.md -m "Added the document-writing standard and linked it from conventions"
@@ -121,7 +121,7 @@ jj split documents/writing-documents.md documents/conventions.md -m "Added the d
 **Files:**
 - Create: `documents/spec/aggregate-identity.md`
 
-- [ ] **Step 1: Write `documents/spec/aggregate-identity.md`** with exactly this content:
+- [x] **Step 1: Write `documents/spec/aggregate-identity.md`** with exactly this content:
 
 ````markdown
 # Aggregate Identity — Normative Specification
@@ -256,7 +256,7 @@ vendor a verbatim copy into their test trees.
 | TypeScript (`wee-events`) | Pending — legacy `type.key` dot form; migration unscheduled |
 ````
 
-- [ ] **Step 2: Coordinator commits**
+- [x] **Step 2: Coordinator commits**
 
 ```bash
 jj split documents/spec/aggregate-identity.md -m "Added the normative aggregate-identity grammar specification (spec v1)"
@@ -267,7 +267,7 @@ jj split documents/spec/aggregate-identity.md -m "Added the normative aggregate-
 **Files:**
 - Create: `documents/spec/aggregate-identity.vectors.json`
 
-- [ ] **Step 1: Write `documents/spec/aggregate-identity.vectors.json`**:
+- [x] **Step 1: Write `documents/spec/aggregate-identity.vectors.json`**:
 
 ```json
 {
@@ -331,7 +331,7 @@ jj split documents/spec/aggregate-identity.md -m "Added the normative aggregate-
 }
 ```
 
-- [ ] **Step 2: Append the four length-boundary vectors** (too long to hand-author safely):
+- [x] **Step 2: Append the four length-boundary vectors** (too long to hand-author safely):
 
 ```bash
 python3 - <<'EOF'
@@ -350,7 +350,7 @@ with open(p, 'w') as f:
 EOF
 ```
 
-- [ ] **Step 3: Verify the file** — valid JSON, boundary lengths exact:
+- [x] **Step 3: Verify the file** — valid JSON, boundary lengths exact:
 
 ```bash
 jq -r '[.construct[].type | length] | max' documents/spec/aggregate-identity.vectors.json
@@ -362,7 +362,7 @@ jq -r '[.construct[].key | length] | max' documents/spec/aggregate-identity.vect
 ```
 Expected: `513`
 
-- [ ] **Step 4: Coordinator commits**
+- [x] **Step 4: Coordinator commits**
 
 ```bash
 jj split documents/spec/aggregate-identity.vectors.json -m "Added the aggregate-identity conformance vector file (spec v1, 55 vectors)"
@@ -379,7 +379,7 @@ is one task and one commit.
 - Modify: `we/aggregate-id_test.go` (full replacement below)
 - Modify: `we/identity-gen.go` (full replacement below)
 
-- [ ] **Step 1: Replace `we/aggregate-id_test.go`** with:
+- [x] **Step 1: Replace `we/aggregate-id_test.go`** with:
 
 ```go
 package we
@@ -561,7 +561,7 @@ func TestCanonicalEncoding(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Replace `we/identity-gen.go`** with:
+- [x] **Step 2: Replace `we/identity-gen.go`** with:
 
 ```go
 package we
@@ -586,14 +586,14 @@ func IdentityKeyGen() *rapid.Generator[string] {
 }
 ```
 
-- [ ] **Step 3: Run the package tests to verify the new tests fail against the old validator**
+- [x] **Step 3: Run the package tests to verify the new tests fail against the old validator**
 
 ```bash
 mise exec -- go test -count=1 ./we/ -run 'TestMakeAggregateId|TestCanonicalEncoding'
 ```
 Expected: FAIL — at minimum "uppercase type", "tilde in type", "trailing hyphen type", "over-long key" reject nothing under the v1 validator.
 
-- [ ] **Step 4: Replace `we/aggregate-id.go`** with:
+- [x] **Step 4: Replace `we/aggregate-id.go`** with:
 
 ```go
 package we
@@ -715,21 +715,21 @@ func MakeAggregateId(aggregateType string, key string) (AggregateId, error) {
 }
 ```
 
-- [ ] **Step 5: Run the package tests to verify green**
+- [x] **Step 5: Run the package tests to verify green**
 
 ```bash
 mise exec -- go test -count=1 ./we/
 ```
 Expected: PASS, no skips. If a rapid failfile appears under `we/testdata/rapid/`, investigate before proceeding — then delete it.
 
-- [ ] **Step 6: Run the full unit suite** — other packages construct identities (samples, connectors, store unit tests); any literal now invalid under v2 fails here. Fix each failing literal to a v2-valid spelling (lowercase kebab type; no `~`).
+- [x] **Step 6: Run the full unit suite** — other packages construct identities (samples, connectors, store unit tests); any literal now invalid under v2 fails here. Fix each failing literal to a v2-valid spelling (lowercase kebab type; no `~`).
 
 ```bash
 mise exec -- go test -count=1 ./... 2>&1 | tail -20; echo "exit: $?"
 ```
 Expected: `exit: 0` (Docker-dependent integration tests may require Docker running; if unavailable, run them in Task 8's gate instead and say so honestly in the report).
 
-- [ ] **Step 7: Coordinator commits** (include any literal fixes from Step 6 in the fileset, naming them)
+- [x] **Step 7: Coordinator commits** (include any literal fixes from Step 6 in the fileset, naming them)
 
 ```bash
 jj split we/aggregate-id.go we/aggregate-id_test.go we/identity-gen.go -m "Tightened the identity grammar to v2: kebab types, pipe-segmented keys, '@' admitted, '~' dropped, 64/512 octet caps"
@@ -740,7 +740,7 @@ jj split we/aggregate-id.go we/aggregate-id_test.go we/identity-gen.go -m "Tight
 **Files:**
 - Create: `we/identity-vectors_test.go`
 
-- [ ] **Step 1: Write `we/identity-vectors_test.go`**:
+- [x] **Step 1: Write `we/identity-vectors_test.go`**:
 
 ```go
 package we
@@ -835,14 +835,14 @@ func TestIdentityParseVectors(t *testing.T) {
 }
 ```
 
-- [ ] **Step 2: Run it**
+- [x] **Step 2: Run it**
 
 ```bash
 mise exec -- go test -count=1 ./we/ -run 'TestIdentityConstructVectors|TestIdentityParseVectors' -v 2>&1 | tail -15; echo "exit: $?"
 ```
 Expected: `exit: 0`, 55 subtests passed. A failure means vector and validator disagree — determine which is wrong against the spec, fix that one, re-run.
 
-- [ ] **Step 3: Coordinator commits**
+- [x] **Step 3: Coordinator commits**
 
 ```bash
 jj split we/identity-vectors_test.go -m "Bound the Go implementation to the shared conformance vectors (spec v1)"
@@ -857,7 +857,7 @@ jj split we/identity-vectors_test.go -m "Bound the Go implementation to the shar
 - Modify: `documents/roadmap.md` (decisions table + ADR-0008 references)
 - Modify: `we/event.go` (comment references)
 
-- [ ] **Step 1: Write `documents/adr/0010-identity-grammar.md`**:
+- [x] **Step 1: Write `documents/adr/0010-identity-grammar.md`**:
 
 ````markdown
 # ADR-0010 — Aggregate identity grammar v2: kebab types, segmented keys, shared normative spec
@@ -955,13 +955,13 @@ safe moment to tighten.
   legitimate key.
 ````
 
-- [ ] **Step 2: Delete the superseded ADR**
+- [x] **Step 2: Delete the superseded ADR**
 
 ```bash
 rm documents/adr/0008-aggregate-identity.md
 ```
 
-- [ ] **Step 3: Update `documents/adr/README.md`** index rows — replace the 0008 row and append 0010:
+- [x] **Step 3: Update `documents/adr/README.md`** index rows — replace the 0008 row and append 0010:
 
 ```markdown
 | 0008 | Aggregate identity: canonical `type:key` form and validated construction | Superseded by 0010 — removed |
@@ -970,7 +970,7 @@ rm documents/adr/0008-aggregate-identity.md
 | [0010](0010-identity-grammar.md) | Aggregate identity grammar v2: kebab types, segmented keys, shared normative spec | Accepted |
 ```
 
-- [ ] **Step 4: Repoint every ADR-0008 reference.** Find them:
+- [x] **Step 4: Repoint every ADR-0008 reference.** Find them:
 
 ```bash
 grep -rn "0008-aggregate-identity\|ADR-0008" --include="*.go" --include="*.md" . | grep -v docs/superpowers | grep -v "adr/README"
@@ -983,14 +983,14 @@ Known sites and their treatment:
 - `documents/features/07-aggregate-identity.md`: every `ADR-0008` link → `ADR-0010` (`adr/0010-identity-grammar.md`); handled fully in Task 7.
 - Any remaining hits from the grep: repoint the same way; the design doc and this plan under `docs/superpowers/` stay as-is (historical records).
 
-- [ ] **Step 5: Verify no live references remain**
+- [x] **Step 5: Verify no live references remain**
 
 ```bash
 grep -rn "0008-aggregate-identity" --include="*.go" --include="*.md" . | grep -v docs/superpowers | grep -v "adr/README"
 ```
 Expected: no output.
 
-- [ ] **Step 6: Coordinator commits**
+- [x] **Step 6: Coordinator commits**
 
 ```bash
 jj split documents/adr/ documents/roadmap.md we/event.go documents/features/07-aggregate-identity.md -m "Superseded ADR-0008 with ADR-0010: grammar v2 decision, spec named normative, references repointed"
@@ -1004,7 +1004,7 @@ jj split documents/adr/ documents/roadmap.md we/event.go documents/features/07-a
 - Modify: `stores/jetstream/jetstream.go:84–89` (subject comment)
 - Modify: `we/event-store-validation-suite.go` (`IdentityRoundTripsThroughStorage` godoc — still says "RFC 3986 unreserved runes")
 
-- [ ] **Step 1: Replace requirement IDENTITY-S1.R4** body with:
+- [x] **Step 1: Replace requirement IDENTITY-S1.R4** body with:
 
 ```markdown
 - **IDENTITY-S1.R4** (ubiquitous) — The parts shall conform to the normative
@@ -1017,7 +1017,7 @@ jj split documents/adr/ documents/roadmap.md we/event.go documents/features/07-a
   (stores adapt to the key space; IDENTITY-S4).
 ```
 
-- [ ] **Step 2: Replace requirement IDENTITY-S1.R7** body with:
+- [x] **Step 2: Replace requirement IDENTITY-S1.R7** body with:
 
 ```markdown
 - **IDENTITY-S1.R7** (ubiquitous) — All implementations bind to the shared
@@ -1028,7 +1028,7 @@ jj split documents/adr/ documents/roadmap.md we/event.go documents/features/07-a
   an error, never a transformation.
 ```
 
-- [ ] **Step 3: Update requirement IDENTITY-S1.R8**: replace the sentence "`"|"` is the documented convention for composite keys (e.g. `kevin|card|boots`); the framework shall treat the key as opaque and never parse, validate, or enforce segment structure." with:
+- [x] **Step 3: Update requirement IDENTITY-S1.R8**: replace the sentence "`"|"` is the documented convention for composite keys (e.g. `kevin|card|boots`); the framework shall treat the key as opaque and never parse, validate, or enforce segment structure." with:
 
 ```markdown
 - **IDENTITY-S1.R8** (ubiquitous) — `"|"` is the composite-key segment
@@ -1040,7 +1040,7 @@ jj split documents/adr/ documents/roadmap.md we/event.go documents/features/07-a
 ```
 (Keep the requirement's remaining text as-is if it already matches the second sentence.)
 
-- [ ] **Step 4: Update the jetstream subject comment** (`stores/jetstream/jetstream.go`, the paragraph ending at the `subject` function). Replace the sentence listing the remaining runes with:
+- [x] **Step 4: Update the jetstream subject comment** (`stores/jetstream/jetstream.go`, the paragraph ending at the `subject` function). Replace the sentence listing the remaining runes with:
 
 ```go
 // occurs in the canonical form. Only keys carry '.' under grammar v2 (types
@@ -1049,7 +1049,7 @@ jj split documents/adr/ documents/roadmap.md we/event.go documents/features/07-a
 // (documents/spec/aggregate-identity.md).
 ```
 
-- [ ] **Step 4a: Update the suite scenario godoc** — in `we/event-store-validation-suite.go`, the `IdentityRoundTripsThroughStorage` comment, replace "across the full charset grammar of both identity parts — generated types over the RFC 3986 unreserved runes, generated keys additionally including the '|' composite separator —" with:
+- [x] **Step 4a: Update the suite scenario godoc** — in `we/event-store-validation-suite.go`, the `IdentityRoundTripsThroughStorage` comment, replace "across the full charset grammar of both identity parts — generated types over the RFC 3986 unreserved runes, generated keys additionally including the '|' composite separator —" with:
 
 ```go
 // exact aggregate identity and payload for property-generated inputs across
@@ -1057,14 +1057,14 @@ jj split documents/adr/ documents/roadmap.md we/event.go documents/features/07-a
 // documents/spec/aggregate-identity.md — kebab types; pipe-segmented keys)
 ```
 
-- [ ] **Step 5: Verify the suite still passes** (comments only, but the feature doc tables reference test names):
+- [x] **Step 5: Verify the suite still passes** (comments only, but the feature doc tables reference test names):
 
 ```bash
 mise exec -- go test -count=1 ./we/ ./stores/jetstream/ 2>&1 | tail -5; echo "exit: $?"
 ```
 Expected: `exit: 0` (jetstream integration tests need Docker; if unavailable, unit tests must still pass and Task 8 covers the rest).
 
-- [ ] **Step 6: Coordinator commits**
+- [x] **Step 6: Coordinator commits**
 
 ```bash
 jj split documents/features/07-aggregate-identity.md stores/jetstream/jetstream.go we/event-store-validation-suite.go -m "Pointed feature 07 requirements and the stale store/suite comments at the normative grammar spec"
@@ -1072,28 +1072,28 @@ jj split documents/features/07-aggregate-identity.md stores/jetstream/jetstream.
 
 ### Task 8: Phase 1 gate
 
-- [ ] **Step 1: Lint**
+- [x] **Step 1: Lint**
 
 ```bash
 mise exec -- just lint; echo "exit: $?"
 ```
 Expected: `exit: 0`, 0 issues.
 
-- [ ] **Step 2: Full uncached suite with Docker running**
+- [x] **Step 2: Full uncached suite with Docker running**
 
 ```bash
 mise exec -- go test -count=1 ./... 2>&1 | tail -15; echo "exit: $?"
 ```
 Expected: `exit: 0`, all packages ok, **0 skips**. Check `jj st` for stray `testdata/rapid` failfiles; investigate any (replay the shrunk input — distinguish a Kurrent connection flake from a real grammar finding), then delete.
 
-- [ ] **Step 3: CodeRabbit pass over the phase**
+- [x] **Step 3: CodeRabbit pass over the phase**
 
 ```bash
 cr review --plain 2>&1 | tail -30
 ```
 Address Important findings; record dismissed nits with reasons.
 
-- [ ] **Step 4: Coordinator commits any review fixes** (exact fileset per fix, past tense), or nothing if clean.
+- [x] **Step 4: Coordinator commits any review fixes** (exact fileset per fix, past tense), or nothing if clean.
 
 ---
 
@@ -1111,7 +1111,7 @@ same message rules.
 - Create: `crates/wee-events/tests/identity_vectors.rs`
 - Modify: `crates/wee-events/Cargo.toml` (dev-dependencies, only if `serde_json` absent)
 
-- [ ] **Step 1: Copy the vector file verbatim**
+- [x] **Step 1: Copy the vector file verbatim**
 
 ```bash
 mkdir -p ~/Projects/weegigs/wee-events.rs/crates/wee-events/tests/vectors
@@ -1119,13 +1119,13 @@ cp /Users/kevin/Projects/weegigs/wee-events-go/documents/spec/aggregate-identity
    ~/Projects/weegigs/wee-events.rs/crates/wee-events/tests/vectors/aggregate-identity.vectors.json
 ```
 
-- [ ] **Step 2: Ensure `serde_json` is a dev-dependency**
+- [x] **Step 2: Ensure `serde_json` is a dev-dependency**
 
 ```bash
 grep -q 'serde_json' ~/Projects/weegigs/wee-events.rs/crates/wee-events/Cargo.toml || (cd ~/Projects/weegigs/wee-events.rs && cargo add --dev serde_json -p wee-events)
 ```
 
-- [ ] **Step 3: Write `crates/wee-events/tests/identity_vectors.rs`**:
+- [x] **Step 3: Write `crates/wee-events/tests/identity_vectors.rs`**:
 
 ```rust
 //! Conformance against the shared aggregate-identity grammar
@@ -1231,7 +1231,7 @@ fn parse_vectors() {
 }
 ```
 
-- [ ] **Step 4: Run to verify it fails** (red — `try_new`, `InvalidType`, `InvalidKey` don't exist yet)
+- [x] **Step 4: Run to verify it fails** (red — `try_new`, `InvalidType`, `InvalidKey` don't exist yet)
 
 ```bash
 cd ~/Projects/weegigs/wee-events.rs && cargo test -p wee-events --test identity_vectors 2>&1 | tail -10
@@ -1245,7 +1245,7 @@ Expected: COMPILE ERROR naming `try_new` / `InvalidType` / `InvalidKey`.
 **Files (in wee-events.rs):**
 - Modify: `crates/wee-events/src/id.rs`
 
-- [ ] **Step 1: Add the validators and constants** (module level, near `AggregateId`):
+- [x] **Step 1: Add the validators and constants** (module level, near `AggregateId`):
 
 ```rust
 /// Length caps in octets (wee-events-go: documents/spec/aggregate-identity.md).
@@ -1301,7 +1301,7 @@ fn valid_identity_key(s: &str) -> bool {
 }
 ```
 
-- [ ] **Step 2: Extend `AggregateIdParseError`** with the two new variants (after `EmptyKey`):
+- [x] **Step 2: Extend `AggregateIdParseError`** with the two new variants (after `EmptyKey`):
 
 ```rust
     #[error("aggregate type violates the identity grammar (lowercase kebab, ≤64 octets)")]
@@ -1310,7 +1310,7 @@ fn valid_identity_key(s: &str) -> bool {
     InvalidKey,
 ```
 
-- [ ] **Step 3: Add `try_new` to `impl AggregateId`** (after `new`):
+- [x] **Step 3: Add `try_new` to `impl AggregateId`** (after `new`):
 
 ```rust
     /// Validating constructor for untrusted parts, enforcing the shared
@@ -1341,7 +1341,7 @@ fn valid_identity_key(s: &str) -> bool {
     }
 ```
 
-- [ ] **Step 4: Route `FromStr` through the same validation** — replace the body's final `Ok(...)` construction:
+- [x] **Step 4: Route `FromStr` through the same validation** — replace the body's final `Ok(...)` construction:
 
 ```rust
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -1352,7 +1352,7 @@ fn valid_identity_key(s: &str) -> bool {
     }
 ```
 
-- [ ] **Step 5: Fix the doc comments that bless the old behaviour.** In the `AggregateId` "Wire format" doc comment, replace the sentence claiming the key "may contain additional colons for compound identifiers like `"run:01ABC"` or URN-style values" with:
+- [x] **Step 5: Fix the doc comments that bless the old behaviour.** In the `AggregateId` "Wire format" doc comment, replace the sentence claiming the key "may contain additional colons for compound identifiers like `"run:01ABC"` or URN-style values" with:
 
 ```rust
 /// it is the key. Under the shared identity grammar the canonical form
@@ -1363,21 +1363,21 @@ fn valid_identity_key(s: &str) -> bool {
 
 Update the construction table row for `FromStr`/`TryFrom` if it names only the old errors, and extend the `new()` trust note: `new()` still trusts typed parts (the `SocketAddrV4` pattern); `try_new` is the validating counterpart for untrusted parts.
 
-- [ ] **Step 6: Run the conformance and full crate tests**
+- [x] **Step 6: Run the conformance and full crate tests**
 
 ```bash
 cd ~/Projects/weegigs/wee-events.rs && cargo test -p wee-events 2>&1 | tail -10
 ```
 Expected: PASS including `identity_vectors`. Pre-existing unit tests constructing identities outside grammar v2 (uppercase types, colon keys) fail here — update each to a v2-valid spelling, or where the test pins the *old* permissive behaviour, replace it with the new rejection assertion.
 
-- [ ] **Step 7: Lint/format gates**
+- [x] **Step 7: Lint/format gates**
 
 ```bash
 cd ~/Projects/weegigs/wee-events.rs && cargo clippy -p wee-events --all-targets 2>&1 | tail -5 && cargo fmt --check
 ```
 Expected: no warnings (no `#[allow]` — house rule), clean format.
 
-- [ ] **Step 8: Coordinator commits in wee-events.rs** (one commit, full fileset of Tasks 9+10):
+- [x] **Step 8: Coordinator commits in wee-events.rs** (one commit, full fileset of Tasks 9+10):
 
 Message: `Aligned AggregateId validation to the shared identity grammar v2 and bound it to the vendored conformance vectors`
 
@@ -1387,9 +1387,9 @@ Message: `Aligned AggregateId validation to the shared identity grammar v2 and b
 - Modify: `documents/spec/aggregate-identity.md` (status table)
 - Modify: `documents/roadmap.md` (remove the item-D follow-up)
 
-- [ ] **Step 1:** In the spec's conformance table, change the Rust row to `| Rust (\`wee-events.rs\`) | Conformant (vendored vectors, spec v1) |`.
-- [ ] **Step 2:** In `documents/roadmap.md` "Follow-ups discovered during implementation", delete the "Align `wee-events.rs` to the tightened identity charset" bullet entirely (it is done, not amended).
-- [ ] **Step 3: Coordinator commits**
+- [x] **Step 1:** In the spec's conformance table, change the Rust row to `| Rust (\`wee-events.rs\`) | Conformant (vendored vectors, spec v1) |`.
+- [x] **Step 2:** In `documents/roadmap.md` "Follow-ups discovered during implementation", delete the "Align `wee-events.rs` to the tightened identity charset" bullet entirely (it is done, not amended).
+- [x] **Step 3: Coordinator commits**
 
 ```bash
 jj split documents/spec/aggregate-identity.md documents/roadmap.md -m "Recorded wee-events.rs conformance to the shared identity grammar and closed the alignment follow-up"
@@ -1408,13 +1408,13 @@ v0.42+ `network.Port` API exists. No code change is possible.
 **Files:**
 - Modify: `documents/roadmap.md` (the sdk-go follow-up bullet)
 
-- [ ] **Step 1:** Append to the existing "`restatedev/sdk-go` test harness vs `testcontainers-go` v0.42" bullet:
+- [x] **Step 1:** Append to the existing "`restatedev/sdk-go` test harness vs `testcontainers-go` v0.42" bullet:
 
 ```markdown
   Checked 2026-06-10: v0.24.0 remains the latest release; still blocked.
 ```
 
-- [ ] **Step 2: Coordinator commits**
+- [x] **Step 2: Coordinator commits**
 
 ```bash
 jj split documents/roadmap.md -m "Recorded the sdk-go harness follow-up as still blocked at v0.24.0 (checked 2026-06-10)"
@@ -1433,7 +1433,7 @@ migrated** — confirmed precedent (ADR-0010 restates it). Docker required.
 **Files:**
 - Modify: `we/event.go:27–30`
 
-- [ ] **Step 1: Retype** — replace the `Data` struct with:
+- [x] **Step 1: Retype** — replace the `Data` struct with:
 
 ```go
 // Data is the encoding-tagged payload envelope. Data is opaque bytes in the
@@ -1448,14 +1448,14 @@ type Data struct {
 
 Remove the now-unused `"encoding/json"` import from `we/event.go` if nothing else in the file uses it.
 
-- [ ] **Step 2: Build and run the core suite**
+- [x] **Step 2: Build and run the core suite**
 
 ```bash
 mise exec -- go build ./... && mise exec -- go test -count=1 ./we/ ./samples/... ./connectors/wehttp/ 2>&1 | tail -10; echo "exit: $?"
 ```
 Expected: compiles everywhere (`json.RawMessage` is `[]byte` underneath, so codec assignments are unchanged). Test failures, if any, are envelope-shape assertions — update each to expect base64 (`"data":"eyJ..."` instead of an embedded object), asserting the *decoded* payload value rather than raw envelope text wherever possible.
 
-- [ ] **Step 3: Coordinator commits** (include any assertion updates in the fileset)
+- [x] **Step 3: Coordinator commits** (include any assertion updates in the fileset)
 
 ```bash
 jj split we/event.go -m "Retyped we.Data.Data to []byte so envelope serialisation treats payload bytes as opaque"
@@ -1471,7 +1471,7 @@ succeed and must prove the round-trip instead.
 - Modify: `stores/jetstream/encoding_test.go` (the "cbor override … fails loudly" subtest, comment block lines ~93–109)
 - Modify: `stores/ds/event-store_test.go` (the "cbor override takes precedence over the json constructor encoder" subtest, comment block lines ~75–94)
 
-- [ ] **Step 1: jetstream** — replace the loud-failure subtest and its comment with:
+- [x] **Step 1: jetstream** — replace the loud-failure subtest and its comment with:
 
 ```go
 	// ENCODING-S2.R3 — the per-publish override takes precedence over the
@@ -1495,16 +1495,16 @@ succeed and must prove the round-trip instead.
 
 (Mirror the identity helper and load/assert pattern of the file's existing positive-path subtest exactly — the JSON-override subtest a few lines below already loads and decodes recorded events; use its exact accessor shapes.)
 
-- [ ] **Step 2: ds** — same transformation for the ds subtest, mirroring the file's existing positive-path load/assert pattern with `we.CBOREncoding` and a `CBORDecoder` decode.
+- [x] **Step 2: ds** — same transformation for the ds subtest, mirroring the file's existing positive-path load/assert pattern with `we.CBOREncoding` and a `CBORDecoder` decode.
 
-- [ ] **Step 3: Run both packages (Docker running)**
+- [x] **Step 3: Run both packages (Docker running)**
 
 ```bash
 mise exec -- go test -count=1 ./stores/ds/ ./stores/jetstream/ 2>&1 | tail -8; echo "exit: $?"
 ```
 Expected: `exit: 0`.
 
-- [ ] **Step 4: Coordinator commits**
+- [x] **Step 4: Coordinator commits**
 
 ```bash
 jj split stores/ds/event-store_test.go stores/jetstream/encoding_test.go -m "Flipped the ds/jetstream CBOR-override tests from loud failure to end-to-end round-trip after the envelope retype"
@@ -1515,13 +1515,13 @@ jj split stores/ds/event-store_test.go stores/jetstream/encoding_test.go -m "Fli
 **Files:**
 - Modify: `we/event-store-validation-suite.go` (scenario list + new method)
 
-- [ ] **Step 1: Register the scenario** in the suite's scenario table (alongside `{"round-trips full-charset identities through storage", s.IdentityRoundTripsThroughStorage}`):
+- [x] **Step 1: Register the scenario** in the suite's scenario table (alongside `{"round-trips full-charset identities through storage", s.IdentityRoundTripsThroughStorage}`):
 
 ```go
 		{"round-trips cbor payloads through storage", s.CBORPayloadRoundTripsThroughStorage},
 ```
 
-- [ ] **Step 2: Implement the method** (the suite's API, per `IdentityRoundTripsThroughStorage` in the same file: `s.store`, `s.ctx`, `s.MakeTestAggregateId()`, `StoreValidationEvent`, `Load` returning a value with `.Events`):
+- [x] **Step 2: Implement the method** (the suite's API, per `IdentityRoundTripsThroughStorage` in the same file: `s.store`, `s.ctx`, `s.MakeTestAggregateId()`, `StoreValidationEvent`, `Load` returning a value with `.Events`):
 
 ```go
 // CBORPayloadRoundTripsThroughStorage proves a backend stores and returns
@@ -1544,14 +1544,14 @@ func (s *EventStoreValidationSuite) CBORPayloadRoundTripsThroughStorage(t *testi
 }
 ```
 
-- [ ] **Step 3: Run the suite across all backends (Docker running)**
+- [x] **Step 3: Run the suite across all backends (Docker running)**
 
 ```bash
 mise exec -- go test -count=1 ./we/ ./stores/... 2>&1 | tail -10; echo "exit: $?"
 ```
 Expected: `exit: 0` — memory, ds, jetstream, kurrent, sqlite all pass the new scenario, 0 skips.
 
-- [ ] **Step 4: Coordinator commits**
+- [x] **Step 4: Coordinator commits**
 
 ```bash
 jj split we/event-store-validation-suite.go -m "Extended the conformance suite with a CBOR payload round-trip scenario binding every backend (ENCODING-S3.R2 unscoped)"
@@ -1565,24 +1565,24 @@ jj split we/event-store-validation-suite.go -m "Extended the conformance suite w
 - Modify: `documents/features/08-explicit-event-encoding.md` (ENCODING-S3.R2 scoping note + verification row)
 - Modify: `documents/roadmap.md` (remove the item-A follow-up bullet)
 
-- [ ] **Step 1:** In both store godocs, delete the caveat sentences stating a CBOR-constructed/overridden store "fails every non-empty publish loudly at serialization — end-to-end CBOR is scoped to BLOB-backed stores (ENCODING-S3.R2)". Replace with one sentence:
+- [x] **Step 1:** In both store godocs, delete the caveat sentences stating a CBOR-constructed/overridden store "fails every non-empty publish loudly at serialization — end-to-end CBOR is scoped to BLOB-backed stores (ENCODING-S3.R2)". Replace with one sentence:
 
 ```go
 // Payload bytes are opaque in the persisted envelope (base64 in JSON), so
 // every payload encoding round-trips end-to-end (ENCODING-S3.R2).
 ```
 
-- [ ] **Step 2:** In feature 08, ENCODING-S3.R2: delete the italic scoping note "*(End-to-end CBOR remains scoped to BLOB-backed stores … verified behaviour.)*" and update the verification-table row for ENCODING-S3.R2 to: `conformance suite "round-trips cbor payloads through storage" across memory/ds/jetstream/kurrent/sqlite`.
-- [ ] **Step 3:** In `documents/roadmap.md`, delete the "`we.Data.Data` is typed `json.RawMessage` but now carries CBOR bytes" follow-up bullet entirely.
-- [ ] **Step 4:** Verify no stale claims survive:
+- [x] **Step 2:** In feature 08, ENCODING-S3.R2: delete the italic scoping note "*(End-to-end CBOR remains scoped to BLOB-backed stores … verified behaviour.)*" and update the verification-table row for ENCODING-S3.R2 to: `conformance suite "round-trips cbor payloads through storage" across memory/ds/jetstream/kurrent/sqlite`.
+- [x] **Step 3:** In `documents/roadmap.md`, delete the "`we.Data.Data` is typed `json.RawMessage` but now carries CBOR bytes" follow-up bullet entirely.
+- [x] **Step 4:** Verify no stale claims survive:
 
 ```bash
 grep -rn "scoped to BLOB\|BLOB-backed" --include="*.go" --include="*.md" . | grep -v docs/superpowers
 ```
 Expected: no output (or only historical docs under `docs/superpowers/`).
 
-- [ ] **Step 5: Phase gate** — lint + full suite + CodeRabbit, exactly as Task 8.
-- [ ] **Step 6: Coordinator commits**
+- [x] **Step 5: Phase gate** — lint + full suite + CodeRabbit, exactly as Task 8.
+- [x] **Step 6: Coordinator commits**
 
 ```bash
 jj split stores/ds/event-store.go stores/jetstream/jetstream.go documents/features/08-explicit-event-encoding.md documents/roadmap.md -m "Removed the BLOB-only CBOR scoping caveats and closed the envelope-opacity follow-up"
@@ -1598,20 +1598,20 @@ The pinned client (`github.com/kurrent-io/KurrentDB-Client-Go v1.2.0`) is
 the latest release; there is no upgrade path. This task produces findings,
 not code. **Do not design or implement a fix in this plan.**
 
-- [ ] **Step 1: Locate the client source**
+- [x] **Step 1: Locate the client source**
 
 ```bash
 ls $(mise exec -- go env GOMODCACHE)/github.com/kurrent-io/
 ```
 
-- [ ] **Step 2: Investigate, answering exactly these questions** (read `connection`/`client`/`grpc` files in the module):
+- [x] **Step 2: Investigate, answering exactly these questions** (read `connection`/`client`/`grpc` files in the module):
   1. Where is `ErrorCodeConnectionClosed` produced, and what does the client do with the underlying `grpc.ClientConn` afterwards?
   2. Does any code path re-dial or rebuild the channel after a terminal connection error (search for `Dial`, `reconnect`, `discover`)?
   3. Do `kurrentdb.Configuration`/client options expose keepalive, retry, or reconnection knobs the store could enable?
   4. Is the poisoning a client bug (dead conn cached) or documented behaviour (caller must rebuild the client)?
-- [ ] **Step 3: Check upstream issues** for known reports (`gh search issues --repo kurrent-io/KurrentDB-Client-Go "connection closed"` — best effort, skip if offline).
-- [ ] **Step 4: Update the roadmap follow-up bullet** with the findings (facts only — what the client does, what knobs exist, what upstream says), and present them to the owner with a recommendation between the two roadmap options (re-dial on detection in `stores/kurrent` vs typed connection-state error for caller rebuild). **STOP — the fix is a follow-on plan after the owner decides.**
-- [ ] **Step 5: Coordinator commits** the roadmap update:
+- [x] **Step 3: Check upstream issues** for known reports (`gh search issues --repo kurrent-io/KurrentDB-Client-Go "connection closed"` — best effort, skip if offline).
+- [x] **Step 4: Update the roadmap follow-up bullet** with the findings (facts only — what the client does, what knobs exist, what upstream says), and present them to the owner with a recommendation between the two roadmap options (re-dial on detection in `stores/kurrent` vs typed connection-state error for caller rebuild). **STOP — the fix is a follow-on plan after the owner decides.**
+- [x] **Step 5: Coordinator commits** the roadmap update:
 
 ```bash
 jj split documents/roadmap.md -m "Recorded the KurrentDB client reconnect investigation findings"
