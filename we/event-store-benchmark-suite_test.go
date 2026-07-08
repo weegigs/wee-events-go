@@ -12,3 +12,12 @@ func BenchmarkMemory(b *testing.B) {
 	suite := NewEventStoreBenchmarkSuite(context.Background(), newMemoryEventStore(MakeJSONEncoder()))
 	suite.Run(b)
 }
+
+func BenchmarkMemoryMetrics(b *testing.B) {
+	ctx := context.Background()
+	suite, err := NewEventStoreMetricsSuiteFromEnv(ctx, newMemoryEventStore(MakeJSONEncoder()))
+	if err != nil {
+		b.Fatal(err)
+	}
+	suite.Run(b)
+}
