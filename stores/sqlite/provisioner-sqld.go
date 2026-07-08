@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -20,19 +19,24 @@ type sqldProvisioner struct {
 	dataURL   string
 	authToken string
 	http      *http.Client
+	// registry is the durable record of provisioned namespaces (the admin API
+	// cannot enumerate them); known is a process-local read cache over it.
+	registry *sqldRegistry
 
 	mu    sync.Mutex
 	known map[string]Target
 }
 
 func newSqldProvisioner(adminURL, dataURL, authToken string) *sqldProvisioner {
-	return &sqldProvisioner{
+	p := &sqldProvisioner{
 		adminURL:  strings.TrimRight(adminURL, "/"),
 		dataURL:   strings.TrimRight(dataURL, "/"),
 		authToken: authToken,
 		http:      &http.Client{Timeout: 30 * time.Second},
 		known:     map[string]Target{},
 	}
+	p.registry = &sqldRegistry{target: p.targetFor("default")}
+	return p
 }
 
 // namespace derives the sqld namespace for a partition: a readable fragment
@@ -94,11 +98,9 @@ func (p *sqldProvisioner) EnsureTarget(ctx context.Context, name PartitionName) 
 		case http.StatusOK, http.StatusCreated, http.StatusConflict:
 			// 409 means the namespace already exists, which is success for an
 			// idempotent ensure.
-			target = p.remember(namespace)
 			return nil
 		case http.StatusBadRequest:
 			if strings.Contains(string(body), "already exists") {
-				target = p.remember(namespace)
 				return nil
 			}
 			return fmt.Errorf("sqlite: namespace create returned status %d", resp.StatusCode)
@@ -112,42 +114,68 @@ func (p *sqldProvisioner) EnsureTarget(ctx context.Context, name PartitionName) 
 	if err != nil {
 		return Target{}, err
 	}
+	target, err = p.remember(ctx, namespace, name)
+	if err != nil {
+		return Target{}, err
+	}
 	return target, nil
 }
 
-func (p *sqldProvisioner) ExistingTarget(_ context.Context, name PartitionName) (Target, bool, error) {
+func (p *sqldProvisioner) ExistingTarget(ctx context.Context, name PartitionName) (Target, bool, error) {
 	namespace := p.namespace(name)
 	if name.IsDefault() {
 		return p.targetFor(namespace), true, nil
 	}
+
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	tgt, ok := p.known[namespace]
-	return tgt, ok, nil
+	p.mu.Unlock()
+	if ok {
+		return tgt, true, nil
+	}
+
+	// Cache miss: the namespace may have been provisioned by an earlier
+	// process, so consult the durable registry before reporting absence.
+	_, found, err := p.registry.lookup(ctx, namespace)
+	if err != nil || !found {
+		return Target{}, false, err
+	}
+	tgt = p.targetFor(namespace)
+	p.mu.Lock()
+	p.known[namespace] = tgt
+	p.mu.Unlock()
+	return tgt, true, nil
 }
 
-func (p *sqldProvisioner) NamedTargets(_ context.Context) ([]NamedTarget, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	names := make([]string, 0, len(p.known))
-	for name := range p.known {
-		names = append(names, name)
+// NamedTargets lists registered namespaces. Name carries the LOGICAL partition
+// name recorded at provisioning time — unlike the platform-derived wire names
+// other provisioners report, the registry preserves the original — so the
+// named catalog's fallback derives the correct partition even without opening
+// the shard.
+func (p *sqldProvisioner) NamedTargets(ctx context.Context) ([]NamedTarget, error) {
+	entries, err := p.registry.all(ctx)
+	if err != nil {
+		return nil, err
 	}
-	sort.Strings(names)
-	named := make([]NamedTarget, 0, len(names))
-	for _, name := range names {
-		named = append(named, NamedTarget{Name: name, Target: p.known[name]})
+	named := make([]NamedTarget, 0, len(entries))
+	for _, e := range entries {
+		named = append(named, NamedTarget{Name: e.partition, Target: p.targetFor(e.namespace)})
 	}
 	return named, nil
 }
 
-func (p *sqldProvisioner) remember(namespace string) Target {
+// remember durably registers the namespace, then caches its target. The
+// registry write is what makes the partition visible to later processes.
+func (p *sqldProvisioner) remember(ctx context.Context, namespace string, name PartitionName) (Target, error) {
 	tgt := p.targetFor(namespace)
 	if namespace == "default" {
-		return tgt
+		return tgt, nil
+	}
+	if err := p.registry.record(ctx, namespace, name.String()); err != nil {
+		return Target{}, err
 	}
 	p.mu.Lock()
 	p.known[namespace] = tgt
 	p.mu.Unlock()
-	return tgt
+	return tgt, nil
 }
