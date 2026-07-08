@@ -52,6 +52,25 @@ func makeAggregateId() we.AggregateId {
 	return we.AggregateId{Type: "sqlite-test", Key: we.NewRevisionGenerator().NewRevision(time.Now()).String()}
 }
 
+// Close must not return until every shard's database is actually closed, so
+// an immediate reopen of the same file never races the previous store's
+// deferred close (WAL sidecars, "database is locked").
+func TestStoreCloseReleasesFileBeforeReopen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "events.db")
+	id := makeAggregateId()
+
+	first, err := NewStore(ctx, we.MakeJSONEncoder(), Local(path, Global()))
+	require.NoError(t, err)
+	require.NoError(t, first.Publish(ctx, id, we.Options(), testEvent{Value: "before-close"}))
+	require.NoError(t, first.Close())
+
+	second := newFileStore(t, path)
+	agg, err := second.Load(ctx, id)
+	require.NoError(t, err)
+	require.Len(t, agg.Events, 1)
+}
+
 // SQLITE-S1.R1 — *Store satisfies we.EventStore. Compile-time assertion lives
 // in store.go; this exercises it through the conformance suite against the
 // in-memory and local-file targets (SQLITE-S1.R2, SQLITE-S1.R3, SQLITE-S1.R4,

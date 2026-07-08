@@ -34,6 +34,7 @@ type shard struct {
 	local    bool
 	requests chan shardRequest
 	done     chan struct{}
+	closed   chan struct{}
 	stopped  atomic.Bool
 	gate     *operationGate
 }
@@ -94,6 +95,7 @@ func newShard(db *sql.DB, encoder we.Encoder, busyTimeout time.Duration, local b
 		local:       local,
 		requests:    make(chan shardRequest),
 		done:        make(chan struct{}),
+		closed:      make(chan struct{}),
 		gate:        gate,
 	}
 	go sh.serve()
@@ -101,6 +103,7 @@ func newShard(db *sql.DB, encoder we.Encoder, busyTimeout time.Duration, local b
 }
 
 func (s *shard) serve() {
+	defer close(s.closed)
 	defer func() { _ = s.db.Close() }()
 	for {
 		select {
@@ -184,10 +187,20 @@ func (s *shard) scan(ctx context.Context, run func(ctx context.Context, db *sql.
 	return value.([]we.AggregateId), nil
 }
 
+// stop asks the owner goroutine to shut down. It does not wait: in-flight
+// work finishes on the owner before the deferred database close runs, so
+// eviction never stalls behind a slow request. Callers that need the file
+// handles released (Store.Close) follow up with awaitClosed.
 func (s *shard) stop() {
 	if s.stopped.CompareAndSwap(false, true) {
 		close(s.done)
 	}
+}
+
+// awaitClosed blocks until the owner goroutine has exited and its deferred
+// database close has run.
+func (s *shard) awaitClosed() {
+	<-s.closed
 }
 
 // publishRows runs the publish transaction with bounded busy retries. Revision

@@ -99,6 +99,53 @@ func TestShardStopLetsInFlightRequestFinishBeforeClosingDB(t *testing.T) {
 	assert.False(t, errors.Is(err, sql.ErrConnDone))
 }
 
+func TestShardAwaitClosedBlocksUntilDatabaseClosed(t *testing.T) {
+	ctx := context.Background()
+	sh := newTestShard(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	inflight := make(chan error, 1)
+
+	go func() {
+		_, err := sh.dispatch(ctx, func(ctx context.Context, db *sql.DB) (any, error) {
+			close(started)
+			<-release
+			var one int
+			return nil, db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+		})
+		inflight <- err
+	}()
+
+	<-started
+	sh.stop()
+
+	waited := make(chan struct{})
+	go func() {
+		sh.awaitClosed()
+		close(waited)
+	}()
+
+	select {
+	case <-waited:
+		t.Fatal("awaitClosed returned while a request was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	require.NoError(t, <-inflight)
+
+	select {
+	case <-waited:
+	case <-time.After(2 * time.Second):
+		t.Fatal("awaitClosed did not return after the owner goroutine exited")
+	}
+
+	// The owner goroutine has exited, so the database must actually be closed.
+	err := sh.db.Ping()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "closed")
+}
+
 func TestWriteGateSerializesConcurrentOperations(t *testing.T) {
 	gate := &writeGate{}
 	start := make(chan struct{})

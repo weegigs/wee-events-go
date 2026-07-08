@@ -93,8 +93,15 @@ func (s *Store) Close() error {
 		return nil
 	}
 	s.closed = true
+	// Signal every shard first so they drain concurrently, then wait for each
+	// owner goroutine to run its deferred database close: when Close returns,
+	// all file handles and WAL sidecars are released and the paths are safe to
+	// reopen or delete.
 	for _, sh := range s.shards {
 		sh.stop()
+	}
+	for _, sh := range s.shards {
+		sh.awaitClosed()
 	}
 	s.shards = map[Partition]*shard{}
 	return nil
