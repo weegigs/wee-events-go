@@ -52,6 +52,14 @@ func makeAggregateId() we.AggregateId {
 	return we.AggregateId{Type: "sqlite-test", Key: we.NewRevisionGenerator().NewRevision(time.Now()).String()}
 }
 
+func TestWithRemoteDispatchLimitOverridesBackendDefault(t *testing.T) {
+	raised := SqldNamespaced("http://admin.local", "libsql://data.local", "", ByType()).WithRemoteDispatchLimit(8)
+	assert.Equal(t, 8, raised.remoteDispatchLimit)
+
+	ungated := Turso(TursoConfig{Org: "o", Group: "g", Prefix: "we"}, ByType()).WithRemoteDispatchLimit(0)
+	assert.Equal(t, 0, ungated.remoteDispatchLimit)
+}
+
 // Close must not return until every shard's database is actually closed, so
 // an immediate reopen of the same file never races the previous store's
 // deferred close (WAL sidecars, "database is locked").
@@ -132,7 +140,9 @@ func TestRemoteBackendDispatchGateConfiguration(t *testing.T) {
 	assert.Zero(t, InMemory(Global()).remoteDispatchLimit)
 	assert.Equal(t, defaultSqldRemoteDispatchLimit, SqldDefault("http://localhost:8080", "", Global()).remoteDispatchLimit)
 	assert.Equal(t, defaultSqldRemoteDispatchLimit, SqldNamespaced("http://localhost:9090", "http://localhost:8080", "", ByType()).remoteDispatchLimit)
-	assert.Zero(t, Turso(TursoConfig{Prefix: "we"}, ByType()).remoteDispatchLimit)
+	// Turso shares the go-libsql driver whose libsql_prepare hang forced the
+	// sqld cap, so it is bounded by default until unbounded fan-out is proven.
+	assert.Equal(t, defaultTursoRemoteDispatchLimit, Turso(TursoConfig{Prefix: "we"}, ByType()).remoteDispatchLimit)
 }
 
 func TestRemoteRouteRetryRetriesRemoteSetupRouteNotReady(t *testing.T) {

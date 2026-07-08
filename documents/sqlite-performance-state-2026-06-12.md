@@ -123,6 +123,15 @@ mutex with backend-specific behavior:
 The sqld cap is a driver-stability compromise, not a storage-model requirement.
 It preserves useful fan-out but does not claim unbounded sqld parallelism.
 
+Update 2026-07-08: Turso now defaults to a dispatch cap of 16. Turso shares
+the go-libsql driver whose `libsql_prepare` hang forced the sqld cap, and the
+live width-10/50 runs above show effective concurrency well below 16 (the
+~1.1 s per-operation floor staggers each wave), so the cap costs little while
+unbounded fan-out remains unproven at width 100. The bound is an explicit
+backend option: `Backend.WithRemoteDispatchLimit(n)` raises it per store, and
+`WithRemoteDispatchLimit(0)` restores ungated dispatch once a width-100 run
+passes without reproducing the hang.
+
 ## Current Highs
 
 Local SQLite writes remain strong. Existing-shard local writes cluster around

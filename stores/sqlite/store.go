@@ -36,6 +36,15 @@ const insertChunkSize = 50
 // preserves parallel shard execution without returning to a store-wide mutex.
 const defaultSqldRemoteDispatchLimit = 4
 
+// defaultTursoRemoteDispatchLimit bounds concurrent database/sql calls into
+// go-libsql for Turso backends. Turso shares the driver whose libsql_prepare
+// cgo hang forced the sqld cap; live fan-out runs at widths 10 and 50 showed
+// effective concurrency well below this bound (the ~1.1s per-operation floor
+// staggers the wave), so the cap costs little while unbounded fan-out remains
+// unproven at width 100. Raise or disable it per store with
+// Backend.WithRemoteDispatchLimit.
+const defaultTursoRemoteDispatchLimit = 16
+
 // Backend pairs a strategy with the catalog that serves it. (Deferred here from
 // the catalog task because the constructors below are the first code to read
 // its fields.)
@@ -555,7 +564,21 @@ func SqldNamespaced(adminURL, dataURL, authToken string, strategy NamingStrategy
 // partition. Only naming strategies are legal.
 func Turso(config TursoConfig, strategy NamingStrategy) Backend {
 	provisioner := newTursoProvisioner(newHTTPTursoClient(config.APIToken), config)
-	return Backend{strategy: strategy, catalog: newNamedTargetCatalog(strategy, provisioner), remote: true}
+	return Backend{
+		strategy:            strategy,
+		catalog:             newNamedTargetCatalog(strategy, provisioner),
+		remote:              true,
+		remoteDispatchLimit: defaultTursoRemoteDispatchLimit,
+	}
+}
+
+// WithRemoteDispatchLimit sets the store-wide bound on concurrent database/sql
+// calls for a remote backend. Zero disables the gate: every shard owner then
+// dispatches independently, which is only safe once the go-libsql
+// libsql_prepare hang cannot be reproduced at the intended fan-out width.
+func (b Backend) WithRemoteDispatchLimit(limit int) Backend {
+	b.remoteDispatchLimit = limit
+	return b
 }
 
 func loadEvents(ctx context.Context, db *sql.DB, id we.AggregateId) (we.Aggregate, error) {
