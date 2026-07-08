@@ -76,6 +76,9 @@ func (c *httpTursoClient) do(ctx context.Context, method, path string, body any,
 				return fmt.Errorf("sqlite: failed to decode turso response: %w", err)
 			}
 		}
+		// Drain whatever remains so the keep-alive connection can be reused;
+		// an unread body at Close forces the transport to drop the connection.
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	})
 	if err != nil {

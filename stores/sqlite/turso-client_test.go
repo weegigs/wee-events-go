@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -81,6 +82,32 @@ func TestHTTPTursoClientDoesNotRetryNotFound(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Equal(t, 1, attempts)
+}
+
+func TestHTTPTursoClientReusesConnectionAfterNotFound(t *testing.T) {
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"database not found"}`))
+	}))
+	connections := 0
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			connections++
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	client := newHTTPTursoClient("api-token")
+	client.baseURL = srv.URL
+
+	for range 2 {
+		_, ok, err := client.GetDatabase(context.Background(), "org", "missing")
+		require.NoError(t, err)
+		assert.False(t, ok)
+	}
+
+	assert.Equal(t, 1, connections, "an undrained response body forces a new connection per request")
 }
 
 func TestHTTPTursoClientDoesNotRetryConflict(t *testing.T) {
