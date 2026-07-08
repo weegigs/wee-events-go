@@ -17,12 +17,29 @@ import (
 // dominate the load_scaling numbers and obscure true store throughput.
 func BenchmarkKurrent(b *testing.B) {
 	ctx := context.Background()
+	store, cleanup := newBenchmarkStore(b, ctx)
+	b.Cleanup(cleanup)
 
+	we.NewEventStoreBenchmarkSuite(ctx, store).Run(b)
+}
+
+func BenchmarkMetricsKurrent(b *testing.B) {
+	ctx := context.Background()
+	store, cleanup := newBenchmarkStore(b, ctx)
+	b.Cleanup(cleanup)
+
+	suite, err := we.NewEventStoreMetricsSuiteFromEnv(ctx, store)
+	if err != nil {
+		b.Fatal(err)
+	}
+	suite.Run(b)
+}
+
+func newBenchmarkStore(b *testing.B, ctx context.Context) (we.EventStore, func()) {
+	b.Helper()
 	store, cleanup, err := NewKurrentTestStore(ctx, we.MakeJSONEncoder())
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.Cleanup(cleanup)
-
-	we.NewEventStoreBenchmarkSuite(ctx, store).Run(b)
+	return store, cleanup
 }
