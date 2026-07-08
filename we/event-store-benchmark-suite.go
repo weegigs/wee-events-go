@@ -3,8 +3,6 @@ package we
 import (
 	"context"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/oklog/ulid/v2"
@@ -105,27 +103,10 @@ func concentratedId(_ int) AggregateId {
 
 // runWave runs one wave of exactly n goroutines, each performing one
 // operation, and joins them. One timed iteration is one wave, so ns/op is the
-// latency of an n-wide wave. Worker errors are captured atomically and raised
-// after the join because b.Fatal must not be called from worker goroutines —
-// FailNow is only valid on the benchmark goroutine.
+// latency of an n-wide wave. It is a thin wrapper over RunMeasuredWave, which
+// holds the join logic shared with the metrics suite.
 func runWave(n int, op func(worker int) error) error {
-	var wg sync.WaitGroup
-	var firstErr atomic.Pointer[error]
-	wg.Add(n)
-	for w := range n {
-		go func() {
-			defer wg.Done()
-			if err := op(w); err != nil {
-				firstErr.CompareAndSwap(nil, &err)
-			}
-		}()
-	}
-	wg.Wait()
-	if p := firstErr.Load(); p != nil {
-		return *p
-	}
-
-	return nil
+	return RunMeasuredWave(n, op).Err
 }
 
 // benchmark pairs a sub-benchmark path with the function that implements it.
@@ -188,12 +169,7 @@ func (s *EventStoreBenchmarkSuite) Run(b *testing.B) {
 // called from the benchmark goroutine: it fails via b.Fatal.
 func (s *EventStoreBenchmarkSuite) seed(b *testing.B, id AggregateId, count int) {
 	b.Helper()
-	if count == 0 {
-		return
-	}
-	if err := s.store.Publish(s.ctx, id, Options(), makeBenchmarkEvents(count)...); err != nil {
-		b.Fatal(err)
-	}
+	seedAggregate(b, s.ctx, s.store, id, count)
 }
 
 // creationSingle measures publishing one event to a fresh aggregate. The id is

@@ -82,7 +82,7 @@ func TestMetricsConfigRejectsInvalidWidths(t *testing.T) {
 }
 
 func TestRunMeasuredWaveRecordsWaveAndOperationDurations(t *testing.T) {
-	result := runMeasuredWave(3, func(worker int) error {
+	result := RunMeasuredWave(3, func(worker int) error {
 		time.Sleep(time.Duration(worker+1) * time.Millisecond)
 		return nil
 	})
@@ -98,7 +98,7 @@ func TestRunMeasuredWaveRecordsWaveAndOperationDurations(t *testing.T) {
 }
 
 func TestRunMeasuredWaveReportsFailuresWithoutDroppingDurations(t *testing.T) {
-	result := runMeasuredWave(2, func(worker int) error {
+	result := RunMeasuredWave(2, func(worker int) error {
 		time.Sleep(time.Millisecond)
 		if worker == 1 {
 			return assert.AnError

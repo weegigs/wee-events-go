@@ -28,11 +28,7 @@ func BenchmarkMetricsKurrent(b *testing.B) {
 	store, cleanup := newBenchmarkStore(b, ctx)
 	b.Cleanup(cleanup)
 
-	suite, err := we.NewEventStoreMetricsSuiteFromEnv(ctx, store)
-	if err != nil {
-		b.Fatal(err)
-	}
-	suite.Run(b)
+	we.RunMetricsBenchmark(b, ctx, store)
 }
 
 func newBenchmarkStore(b *testing.B, ctx context.Context) (we.EventStore, func()) {

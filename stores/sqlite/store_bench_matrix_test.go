@@ -1,32 +1,8 @@
 package sqlite
 
 import (
-	"slices"
 	"testing"
 )
-
-func TestSQLiteBenchmarkVariantsMatchReferenceMatrix(t *testing.T) {
-	got := sqliteBenchmarkVariantNames()
-	want := []string{
-		"SqliteInMemory",
-		"SqliteLocalGlobal",
-		"SqliteLocalByType",
-		"SqliteLocalByAggregate",
-		"SqliteLocalHashed",
-		"SqliteLocalPartitionBy",
-		"SqliteSqldDefaultGlobal",
-		"SqliteSqldGlobal",
-		"SqliteSqldByType",
-		"SqliteSqldByAggregate",
-		"SqliteSqldHashed",
-		"SqliteSqldPartitionBy",
-		"SqliteTursoGlobal",
-	}
-
-	if !slices.Equal(got, want) {
-		t.Fatalf("sqlite benchmark variants = %#v, want %#v", got, want)
-	}
-}
 
 func TestSQLiteShardFanoutBenchmarkIDsMapToExpectedPartitions(t *testing.T) {
 	strategy := fanoutByTypeStrategy()

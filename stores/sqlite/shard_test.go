@@ -146,8 +146,8 @@ func TestShardAwaitClosedBlocksUntilDatabaseClosed(t *testing.T) {
 	assert.Contains(t, err.Error(), "closed")
 }
 
-func TestWriteGateSerializesConcurrentOperations(t *testing.T) {
-	gate := &writeGate{}
+func TestOperationGateWithLimitOneSerializesConcurrentOperations(t *testing.T) {
+	gate := newOperationGate(1)
 	start := make(chan struct{})
 	var active atomic.Int32
 	var peak atomic.Int32
@@ -158,7 +158,7 @@ func TestWriteGateSerializesConcurrentOperations(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			<-start
-			require.NoError(t, gate.run(func() error {
+			_, err := gate.runValue(context.Background(), func() (any, error) {
 				now := active.Add(1)
 				for {
 					old := peak.Load()
@@ -168,8 +168,9 @@ func TestWriteGateSerializesConcurrentOperations(t *testing.T) {
 				}
 				time.Sleep(10 * time.Millisecond)
 				active.Add(-1)
-				return nil
-			}))
+				return nil, nil
+			})
+			require.NoError(t, err)
 		}()
 	}
 

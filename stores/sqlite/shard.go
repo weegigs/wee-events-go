@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -37,19 +36,6 @@ type shard struct {
 	closed   chan struct{}
 	stopped  atomic.Bool
 	gate     *operationGate
-}
-
-type writeGate struct {
-	mu sync.Mutex
-}
-
-func (g *writeGate) run(operation func() error) error {
-	if g == nil {
-		return operation()
-	}
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	return operation()
 }
 
 type operationGate struct {

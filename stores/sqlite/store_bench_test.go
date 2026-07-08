@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,26 +16,6 @@ import (
 
 	"github.com/weegigs/wee-events-go/we"
 )
-
-var sqliteBenchmarkVariants = []string{
-	"SqliteInMemory",
-	"SqliteLocalGlobal",
-	"SqliteLocalByType",
-	"SqliteLocalByAggregate",
-	"SqliteLocalHashed",
-	"SqliteLocalPartitionBy",
-	"SqliteSqldDefaultGlobal",
-	"SqliteSqldGlobal",
-	"SqliteSqldByType",
-	"SqliteSqldByAggregate",
-	"SqliteSqldHashed",
-	"SqliteSqldPartitionBy",
-	"SqliteTursoGlobal",
-}
-
-func sqliteBenchmarkVariantNames() []string {
-	return append([]string(nil), sqliteBenchmarkVariants...)
-}
 
 // benchLocal runs the shared event-store benchmark suite against a local-file
 // backend rooted at root with the given strategy.
@@ -220,7 +198,7 @@ func BenchmarkMetricsSqliteSqldByType(b *testing.B) { runSqldMetrics(b, ByType()
 
 func BenchmarkSqliteTursoGlobal(b *testing.B) {
 	cfg := tursoConfigFromEnv(b)
-	cfg.Prefix = cfg.Prefix + "-bench-" + strings.ToLower(ulid.Make().String())
+	cfg.Prefix = cfg.Prefix + "-bench-" + shortBenchmarkSuffix()
 	b.Cleanup(func() {
 		cleanupTursoBenchmarkPrefix(b, cfg)
 	})
@@ -329,14 +307,9 @@ func sqliteShardFanoutWidths(b *testing.B) []int {
 	if raw == "" {
 		return []int{1, 10, 100}
 	}
-	fields := strings.Split(raw, ",")
-	widths := make([]int, 0, len(fields))
-	for _, field := range fields {
-		width, err := strconv.Atoi(strings.TrimSpace(field))
-		if err != nil || width <= 0 {
-			b.Fatalf("invalid SQLITE_SHARD_FANOUT_WIDTHS value %q", raw)
-		}
-		widths = append(widths, width)
+	widths, err := we.ParsePositiveIntList(raw)
+	if err != nil {
+		b.Fatalf("invalid SQLITE_SHARD_FANOUT_WIDTHS value %q", raw)
 	}
 	return widths
 }
@@ -361,31 +334,12 @@ func benchFanoutWrite(ctx context.Context, b *testing.B, store we.EventStore, id
 	}
 	events := makeFanoutEvents(1)
 	for b.Loop() {
-		if err := runFanoutWave(len(ids), func(worker int) error {
+		if err := we.RunMeasuredWave(len(ids), func(worker int) error {
 			return store.Publish(ctx, ids[worker], we.Options(), events...)
-		}); err != nil {
+		}).Err; err != nil {
 			b.Fatal(err)
 		}
 	}
-}
-
-func runFanoutWave(n int, op func(worker int) error) error {
-	var firstErr atomic.Pointer[error]
-	var wg sync.WaitGroup
-	wg.Add(n)
-	for worker := range n {
-		go func() {
-			defer wg.Done()
-			if err := op(worker); err != nil {
-				firstErr.CompareAndSwap(nil, &err)
-			}
-		}()
-	}
-	wg.Wait()
-	if p := firstErr.Load(); p != nil {
-		return *p
-	}
-	return nil
 }
 
 func fanoutOneShardIDs(width int) []we.AggregateId {
@@ -419,12 +373,7 @@ func makeFanoutEvents(count int) []we.DomainEvent {
 
 func runSQLiteMetrics(b *testing.B, store we.EventStore) {
 	b.Helper()
-	ctx := context.Background()
-	suite, err := we.NewEventStoreMetricsSuiteFromEnv(ctx, store)
-	if err != nil {
-		b.Fatal(err)
-	}
-	suite.Run(b)
+	we.RunMetricsBenchmark(b, context.Background(), store)
 }
 
 func BenchmarkMetricsSqliteInMemory(b *testing.B) {

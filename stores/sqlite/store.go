@@ -69,7 +69,7 @@ type Store struct {
 	known  map[Partition]struct{}
 	closed bool
 
-	remoteSetup *writeGate
+	remoteSetup *operationGate
 	remoteOps   *operationGate
 	remote      bool
 }
@@ -88,7 +88,7 @@ func NewStore(_ context.Context, encoder we.Encoder, backend Backend) (*Store, e
 		encoder:     encoder,
 		shards:      map[Partition]*shard{},
 		known:       map[Partition]struct{}{},
-		remoteSetup: &writeGate{},
+		remoteSetup: newOperationGate(1),
 		remoteOps:   newOperationGate(backend.remoteDispatchLimit),
 		remote:      backend.remote,
 	}, nil
@@ -202,7 +202,7 @@ func (s *Store) ensureShard(ctx context.Context, p Partition) (*shard, error) {
 	s.mu.Unlock()
 
 	var sh *shard
-	err := s.withRemoteSetupGate(func() error {
+	err := s.withRemoteSetupGate(ctx, func() error {
 		target, err := s.catalog.EnsureTarget(ctx, p)
 		if err != nil {
 			return err
@@ -248,7 +248,7 @@ func (s *Store) openExisting(ctx context.Context, p Partition) (*shard, bool, er
 		sh *shard
 		ok bool
 	)
-	err := s.withRemoteSetupGate(func() error {
+	err := s.withRemoteSetupGate(ctx, func() error {
 		target, exists, err := s.catalog.ExistingTarget(ctx, p)
 		if err != nil || !exists {
 			ok = exists
@@ -286,11 +286,14 @@ func (s *Store) evictShard(p Partition, sh *shard) {
 	}
 }
 
-func (s *Store) withRemoteSetupGate(operation func() error) error {
+func (s *Store) withRemoteSetupGate(ctx context.Context, operation func() error) error {
 	if !s.remote {
 		return operation()
 	}
-	return s.remoteSetup.run(operation)
+	_, err := s.remoteSetup.runValue(ctx, func() (any, error) {
+		return nil, operation()
+	})
+	return err
 }
 
 // openShard opens and migrates a target, applies the shard pragmas, records its

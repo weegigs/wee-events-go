@@ -35,7 +35,7 @@ func defaultEventStoreMetricsConfig() EventStoreMetricsConfig {
 func metricsConfigFromEnv() (EventStoreMetricsConfig, error) {
 	cfg := defaultEventStoreMetricsConfig()
 	if raw := strings.TrimSpace(os.Getenv("WE_METRICS_WIDTHS")); raw != "" {
-		widths, err := parsePositiveIntList(raw)
+		widths, err := ParsePositiveIntList(raw)
 		if err != nil {
 			return EventStoreMetricsConfig{}, fmt.Errorf("invalid WE_METRICS_WIDTHS: %w", err)
 		}
@@ -51,7 +51,10 @@ func metricsConfigFromEnv() (EventStoreMetricsConfig, error) {
 	return cfg, nil
 }
 
-func parsePositiveIntList(raw string) ([]int, error) {
+// ParsePositiveIntList parses a comma-separated list of positive integers,
+// trimming whitespace around each field. It returns an error naming the
+// offending field if any value is missing, non-numeric, or not positive.
+func ParsePositiveIntList(raw string) ([]int, error) {
 	fields := strings.Split(raw, ",")
 	values := make([]int, 0, len(fields))
 	for _, field := range fields {
@@ -83,6 +86,18 @@ func NewEventStoreMetricsSuiteFromEnv(ctx context.Context, store EventStore) (*E
 	return NewEventStoreMetricsSuite(ctx, store, cfg), nil
 }
 
+// RunMetricsBenchmark builds a metrics suite over store from environment
+// configuration (see NewEventStoreMetricsSuiteFromEnv) and runs it. Every
+// backend's BenchmarkMetrics* entry point shares this body.
+func RunMetricsBenchmark(b *testing.B, ctx context.Context, store EventStore) {
+	b.Helper()
+	suite, err := NewEventStoreMetricsSuiteFromEnv(ctx, store)
+	if err != nil {
+		b.Fatal(err)
+	}
+	suite.Run(b)
+}
+
 func (s *EventStoreMetricsSuite) Run(b *testing.B) {
 	for _, width := range s.config.Widths {
 		b.Run(fmt.Sprintf("write_fanout/spread/%d", width), s.writeFanout(width, makeSpreadId))
@@ -99,7 +114,7 @@ func (s *EventStoreMetricsSuite) writeFanout(width int, idFor func(worker int) A
 		ids := make([]AggregateId, width)
 		for worker := range width {
 			ids[worker] = idFor(worker)
-			seedMetricsAggregate(b, s.ctx, s.store, ids[worker], s.config.SeedEvents)
+			seedAggregate(b, s.ctx, s.store, ids[worker], s.config.SeedEvents)
 		}
 		events := makeBenchmarkEvents(s.config.EventsPerPublish)
 		result := s.runMeasuredWorkload(b, width, func(worker int) error {
@@ -115,7 +130,7 @@ func (s *EventStoreMetricsSuite) readFanout(width int, idFor func(worker int) Ag
 		ids := make([]AggregateId, width)
 		for worker := range width {
 			ids[worker] = idFor(worker)
-			seedMetricsAggregate(b, s.ctx, s.store, ids[worker], s.config.ReadSeedEvents)
+			seedAggregate(b, s.ctx, s.store, ids[worker], s.config.ReadSeedEvents)
 		}
 		result := s.runMeasuredWorkload(b, width, func(worker int) error {
 			_, err := s.store.Load(s.ctx, ids[worker])
@@ -132,7 +147,7 @@ func (s *EventStoreMetricsSuite) mixedFanout(width int) func(b *testing.B) {
 		ids := make([]AggregateId, workers)
 		for worker := range workers {
 			ids[worker] = makeSpreadId(worker)
-			seedMetricsAggregate(b, s.ctx, s.store, ids[worker], s.config.ReadSeedEvents)
+			seedAggregate(b, s.ctx, s.store, ids[worker], s.config.ReadSeedEvents)
 		}
 		events := makeBenchmarkEvents(s.config.EventsPerPublish)
 		result := s.runMeasuredWorkload(b, workers, func(worker int) error {
@@ -216,7 +231,13 @@ type measuredWaveResult struct {
 	Err                error
 }
 
-func runMeasuredWave(width int, op func(worker int) error) measuredWaveResult {
+// RunMeasuredWave runs one wave of exactly width goroutines, each performing
+// one operation, and joins them. It records each operation's duration and
+// count of attempts/failures alongside the joined error. Worker errors are
+// captured atomically and raised after the join because b.Fatal must not be
+// called from worker goroutines — FailNow is only valid on the benchmark
+// goroutine.
+func RunMeasuredWave(width int, op func(worker int) error) measuredWaveResult {
 	var wg sync.WaitGroup
 	var firstErr atomic.Pointer[error]
 	var failures atomic.Int64
@@ -283,7 +304,7 @@ func (s *EventStoreMetricsSuite) runFixedMeasuredWorkload(b *testing.B, width in
 	}
 
 	for wave := 0; wave < s.config.Waves; wave++ {
-		waveResult := runMeasuredWave(width, op)
+		waveResult := RunMeasuredWave(width, op)
 		result.WaveDurations = append(result.WaveDurations, waveResult.WaveDuration)
 		result.OperationDurations = append(result.OperationDurations, waveResult.OperationDurations...)
 		result.Attempts += waveResult.Attempts
@@ -331,7 +352,10 @@ func reportDurationSummary(b *testing.B, prefix string, summary durationSummary)
 	b.ReportMetric(summary.StdDevMS, prefix+"_stddev_ms")
 }
 
-func seedMetricsAggregate(b *testing.B, ctx context.Context, store EventStore, id AggregateId, count int) {
+// seedAggregate pre-populates an aggregate with count events outside any
+// timed region. It must only be called from the benchmark goroutine: it
+// fails via b.Fatal. Shared by both the benchmark and metrics suites.
+func seedAggregate(b *testing.B, ctx context.Context, store EventStore, id AggregateId, count int) {
 	b.Helper()
 	if count == 0 {
 		return
