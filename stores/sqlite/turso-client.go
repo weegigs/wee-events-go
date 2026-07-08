@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -39,36 +40,48 @@ func newHTTPTursoClient(apiToken string) *httpTursoClient {
 }
 
 func (c *httpTursoClient) do(ctx context.Context, method, path string, body any, out any) (int, error) {
-	var reader *bytes.Reader
+	var encoded []byte
 	if body != nil {
-		encoded, err := json.Marshal(body)
+		var err error
+		encoded, err = json.Marshal(body)
 		if err != nil {
 			return 0, fmt.Errorf("sqlite: failed to encode turso request: %w", err)
 		}
-		reader = bytes.NewReader(encoded)
-	} else {
-		reader = bytes.NewReader(nil)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
-	if err != nil {
-		return 0, fmt.Errorf("sqlite: failed to build turso request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+c.apiToken)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("sqlite: turso request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if out != nil && resp.StatusCode/100 == 2 {
-		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-			return resp.StatusCode, fmt.Errorf("sqlite: failed to decode turso response: %w", err)
+	var status int
+	err := withRemoteAPIRetry(ctx, func() error {
+		reader := bytes.NewReader(encoded)
+		req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, reader)
+		if err != nil {
+			return fmt.Errorf("sqlite: failed to build turso request: %w", err)
 		}
+		req.Header.Set("Authorization", "Bearer "+c.apiToken)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := c.http.Do(req)
+		if err != nil {
+			return retryableRemoteError(fmt.Errorf("sqlite: turso request failed: %w", err))
+		}
+		defer func() { _ = resp.Body.Close() }()
+		status = resp.StatusCode
+
+		if isRemoteAPIRetryableStatus(resp.StatusCode) {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			return retryableRemoteStatusError("turso request", resp.StatusCode)
+		}
+
+		if out != nil && resp.StatusCode/100 == 2 {
+			if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+				return fmt.Errorf("sqlite: failed to decode turso response: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return status, err
 	}
-	return resp.StatusCode, nil
+	return status, nil
 }
 
 func (c *httpTursoClient) CreateDatabase(ctx context.Context, org, group, name string) (tursoDatabase, bool, error) {

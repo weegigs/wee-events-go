@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/weegigs/wee-events-go/we"
@@ -13,6 +15,8 @@ import (
 // errStoreClosed is defined here in Task 9 and is the canonical definition for
 // the package; the store (Task 10) reuses it. Do not redefine elsewhere.
 var errStoreClosed = errors.New("sqlite: store is closed")
+
+var errShardClosed = errors.New("sqlite: shard is closed")
 
 // shard owns one partition's database exclusively. A single goroutine consumes
 // the request channel and runs every load/publish/scan against the pinned
@@ -30,6 +34,45 @@ type shard struct {
 	local    bool
 	requests chan shardRequest
 	done     chan struct{}
+	stopped  atomic.Bool
+	gate     *operationGate
+}
+
+type writeGate struct {
+	mu sync.Mutex
+}
+
+func (g *writeGate) run(operation func() error) error {
+	if g == nil {
+		return operation()
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return operation()
+}
+
+type operationGate struct {
+	slots chan struct{}
+}
+
+func newOperationGate(limit int) *operationGate {
+	if limit <= 0 {
+		return nil
+	}
+	return &operationGate{slots: make(chan struct{}, limit)}
+}
+
+func (g *operationGate) runValue(ctx context.Context, operation func() (any, error)) (any, error) {
+	if g == nil {
+		return operation()
+	}
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case g.slots <- struct{}{}:
+	}
+	defer func() { <-g.slots }()
+	return operation()
 }
 
 type shardRequest struct {
@@ -43,7 +86,7 @@ type shardResult struct {
 	err   error
 }
 
-func newShard(db *sql.DB, encoder we.Encoder, busyTimeout time.Duration, local bool) *shard {
+func newShard(db *sql.DB, encoder we.Encoder, busyTimeout time.Duration, local bool, gate *operationGate) *shard {
 	sh := &shard{
 		db:          db,
 		encoder:     encoder,
@@ -51,12 +94,14 @@ func newShard(db *sql.DB, encoder we.Encoder, busyTimeout time.Duration, local b
 		local:       local,
 		requests:    make(chan shardRequest),
 		done:        make(chan struct{}),
+		gate:        gate,
 	}
 	go sh.serve()
 	return sh
 }
 
 func (s *shard) serve() {
+	defer func() { _ = s.db.Close() }()
 	for {
 		select {
 		case <-s.done:
@@ -72,12 +117,21 @@ func (s *shard) serve() {
 // or the caller's cancellation. The reply channel is buffered so the owner is
 // never blocked writing a result the caller has abandoned.
 func (s *shard) dispatch(ctx context.Context, run func(ctx context.Context, db *sql.DB) (any, error)) (any, error) {
+	return s.gate.runValue(ctx, func() (any, error) {
+		return s.dispatchExclusive(ctx, run)
+	})
+}
+
+func (s *shard) dispatchExclusive(ctx context.Context, run func(ctx context.Context, db *sql.DB) (any, error)) (any, error) {
 	reply := make(chan shardResult, 1)
+	if s.stopped.Load() {
+		return nil, errShardClosed
+	}
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	case <-s.done:
-		return nil, errStoreClosed
+		return nil, errShardClosed
 	case s.requests <- shardRequest{ctx: ctx, run: run, reply: reply}:
 	}
 
@@ -131,12 +185,9 @@ func (s *shard) scan(ctx context.Context, run func(ctx context.Context, db *sql.
 }
 
 func (s *shard) stop() {
-	select {
-	case <-s.done:
-	default:
+	if s.stopped.CompareAndSwap(false, true) {
 		close(s.done)
 	}
-	_ = s.db.Close()
 }
 
 // publishRows runs the publish transaction with bounded busy retries. Revision

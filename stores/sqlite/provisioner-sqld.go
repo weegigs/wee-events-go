@@ -3,8 +3,11 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,6 +20,9 @@ type sqldProvisioner struct {
 	dataURL   string
 	authToken string
 	http      *http.Client
+
+	mu    sync.Mutex
+	known map[string]Target
 }
 
 func newSqldProvisioner(adminURL, dataURL, authToken string) *sqldProvisioner {
@@ -25,6 +31,7 @@ func newSqldProvisioner(adminURL, dataURL, authToken string) *sqldProvisioner {
 		dataURL:   strings.TrimRight(dataURL, "/"),
 		authToken: authToken,
 		http:      &http.Client{Timeout: 30 * time.Second},
+		known:     map[string]Target{},
 	}
 }
 
@@ -32,7 +39,23 @@ func (p *sqldProvisioner) namespace(name PartitionName) string {
 	if name.IsDefault() {
 		return "default"
 	}
-	return name.String()
+	return sanitizeSqldNamespace(name.String())
+}
+
+func sanitizeSqldNamespace(name string) string {
+	var b strings.Builder
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-':
+			b.WriteByte(c)
+		case c >= 'A' && c <= 'Z':
+			b.WriteByte(c - 'A' + 'a')
+		default:
+			b.WriteByte('-')
+		}
+	}
+	return b.String()
 }
 
 func (p *sqldProvisioner) targetFor(namespace string) Target {
@@ -52,42 +75,85 @@ func (p *sqldProvisioner) EnsureTarget(ctx context.Context, name PartitionName) 
 	namespace := p.namespace(name)
 	url := fmt.Sprintf("%s/v1/namespaces/%s/create", p.adminURL, namespace)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader("{}"))
-	if err != nil {
-		return Target{}, fmt.Errorf("sqlite: failed to build namespace request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if p.authToken != "" {
-		req.Header.Set("Authorization", "Bearer "+p.authToken)
-	}
+	var target Target
+	err := withRemoteAPIRetry(ctx, func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader("{}"))
+		if err != nil {
+			return fmt.Errorf("sqlite: failed to build namespace request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if p.authToken != "" {
+			req.Header.Set("Authorization", "Bearer "+p.authToken)
+		}
 
-	resp, err := p.http.Do(req)
-	if err != nil {
-		return Target{}, fmt.Errorf("sqlite: namespace create failed: %w", err)
-	}
-	// The body is irrelevant; close it so the connection can be reused.
-	_ = resp.Body.Close()
+		resp, err := p.http.Do(req)
+		if err != nil {
+			return retryableRemoteError(fmt.Errorf("sqlite: namespace create failed: %w", err))
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return retryableRemoteError(fmt.Errorf("sqlite: failed to read namespace create response: %w", readErr))
+		}
 
-	switch resp.StatusCode {
-	case http.StatusOK, http.StatusCreated, http.StatusConflict:
-		// 409 means the namespace already exists, which is success for an
-		// idempotent ensure.
-		return p.targetFor(namespace), nil
-	default:
-		return Target{}, fmt.Errorf("sqlite: namespace create returned status %d", resp.StatusCode)
+		switch resp.StatusCode {
+		case http.StatusOK, http.StatusCreated, http.StatusConflict:
+			// 409 means the namespace already exists, which is success for an
+			// idempotent ensure.
+			target = p.remember(namespace)
+			return nil
+		case http.StatusBadRequest:
+			if strings.Contains(string(body), "already exists") {
+				target = p.remember(namespace)
+				return nil
+			}
+			return fmt.Errorf("sqlite: namespace create returned status %d", resp.StatusCode)
+		default:
+			if isRemoteAPIRetryableStatus(resp.StatusCode) {
+				return retryableRemoteStatusError("namespace create", resp.StatusCode)
+			}
+			return fmt.Errorf("sqlite: namespace create returned status %d", resp.StatusCode)
+		}
+	})
+	if err != nil {
+		return Target{}, err
 	}
+	return target, nil
 }
 
 func (p *sqldProvisioner) ExistingTarget(_ context.Context, name PartitionName) (Target, bool, error) {
-	// sqld has no cheap existence probe distinct from create; the store opens
-	// the target lazily and treats a missing namespace as a load miss. Report
-	// the addressable target and let the caller's open decide.
-	return p.targetFor(p.namespace(name)), true, nil
+	namespace := p.namespace(name)
+	if name.IsDefault() {
+		return p.targetFor(namespace), true, nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	tgt, ok := p.known[namespace]
+	return tgt, ok, nil
 }
 
 func (p *sqldProvisioner) NamedTargets(_ context.Context) ([]NamedTarget, error) {
-	// The sqld admin API used here does not enumerate namespaces; discovery for
-	// sqld relies on the store's known set. Returning empty keeps Partitions a
-	// union with known.
-	return nil, nil
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	names := make([]string, 0, len(p.known))
+	for name := range p.known {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	named := make([]NamedTarget, 0, len(names))
+	for _, name := range names {
+		named = append(named, NamedTarget{Name: name, Target: p.known[name]})
+	}
+	return named, nil
+}
+
+func (p *sqldProvisioner) remember(namespace string) Target {
+	tgt := p.targetFor(namespace)
+	if namespace == "default" {
+		return tgt
+	}
+	p.mu.Lock()
+	p.known[namespace] = tgt
+	p.mu.Unlock()
+	return tgt
 }

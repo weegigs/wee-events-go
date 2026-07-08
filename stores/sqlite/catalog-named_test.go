@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
 	"sort"
 	"testing"
 
@@ -56,10 +57,8 @@ func TestNamedCatalogPartitionsRoundTripThroughStrategy(t *testing.T) {
 	prov := newFakeProvisioner()
 	cat := newNamedTargetCatalog(ByType(), prov)
 
-	_, err := cat.EnsureTarget(ctx, MakePartition("order"))
-	require.NoError(t, err)
-	_, err = cat.EnsureTarget(ctx, MakePartition("user"))
-	require.NoError(t, err)
+	prov.targets["order"] = Target{dsn: "file:" + legacyPartitionDB(t, ctx, "order.db")}
+	prov.targets["user"] = Target{dsn: "file:" + legacyPartitionDB(t, ctx, "user.db")}
 
 	parts, err := cat.Partitions(ctx)
 	require.NoError(t, err)
@@ -67,4 +66,49 @@ func TestNamedCatalogPartitionsRoundTripThroughStrategy(t *testing.T) {
 	names := []string{parts[0].Name(), parts[1].Name()}
 	sort.Strings(names)
 	assert.Equal(t, []string{"order", "user"}, names)
+}
+
+func TestNamedCatalogPartitionsFallsBackForLegacyDatabaseWithoutMetadata(t *testing.T) {
+	ctx := context.Background()
+	prov := newFakeProvisioner()
+	prov.targets["order"] = Target{dsn: "file:" + legacyPartitionDB(t, ctx, "legacy.db")}
+	cat := newNamedTargetCatalog(ByType(), prov)
+
+	parts, err := cat.Partitions(ctx)
+	require.NoError(t, err)
+	require.Equal(t, []Partition{MakePartition("order")}, parts)
+}
+
+func legacyPartitionDB(t *testing.T, ctx context.Context, name string) string {
+	t.Helper()
+	path := t.TempDir() + "/" + name
+	db, err := sql.Open(driverName, "file:"+path)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `CREATE TABLE events (aggregate_type TEXT NOT NULL)`)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	return path
+}
+
+func TestNamedCatalogPartitionsSurfacesMetadataReadFailures(t *testing.T) {
+	ctx := context.Background()
+	prov := newFakeProvisioner()
+	prov.targets["order"] = Target{dsn: "file:" + t.TempDir() + "/missing/partition.db"}
+	cat := newNamedTargetCatalog(ByType(), prov)
+
+	_, err := cat.Partitions(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sqlite:")
+}
+
+func TestNamedCatalogLogicalNameValidatesAuthenticatedTargetDSN(t *testing.T) {
+	ctx := context.Background()
+	prov := newFakeProvisioner()
+	prov.targets["order"] = Target{dsn: "%", authToken: "secret"}
+	cat := newNamedTargetCatalog(ByType(), prov)
+
+	_, err := cat.Partitions(ctx)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid target dsn")
+	assert.NotContains(t, err.Error(), "secret")
 }

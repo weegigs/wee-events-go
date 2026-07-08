@@ -82,3 +82,22 @@ func TestEnumerateByAggregateUsesDirect(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []we.AggregateId{id}, got)
 }
+
+func TestEnumerateAggregatesReopensStoppedShard(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewStore(ctx, we.MakeJSONEncoder(), Local(t.TempDir(), ByType()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	id := we.AggregateId{Type: "order", Key: "1"}
+	require.NoError(t, store.Publish(ctx, id, we.Options(), testEvent{Value: "x"}))
+
+	partition := store.strategy.PartitionFor(id)
+	sh, err := store.ensureShard(ctx, partition)
+	require.NoError(t, err)
+	sh.stop()
+
+	got, err := store.EnumerateAggregates(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []we.AggregateId{id}, got)
+}

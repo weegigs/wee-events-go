@@ -11,7 +11,12 @@ import (
 	"github.com/weegigs/wee-events-go/we"
 )
 
-func tursoConfigFromEnv(t *testing.T) TursoConfig {
+type skipHelper interface {
+	Helper()
+	Skip(args ...any)
+}
+
+func tursoConfigFromEnv(t skipHelper) TursoConfig {
 	t.Helper()
 	cfg := TursoConfig{
 		Org:        os.Getenv("TURSO_ORG"),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"sort"
+	"strings"
 )
 
 // PartitionName is the wire name of a partition passed to a provisioner. The
@@ -58,8 +59,8 @@ func (c *namedTargetCatalog) ExistingTarget(ctx context.Context, p Partition) (T
 
 // Partitions discovers partitions by listing provisioned databases and reading
 // each one's recorded logical name, falling back to strategy discovery from the
-// database's wire name for databases that predate the metadata table or cannot
-// be opened. Mirrors the Rust three-step.
+// database's wire name only for legacy databases that predate partition
+// metadata.
 func (c *namedTargetCatalog) Partitions(ctx context.Context) ([]Partition, error) {
 	named, err := c.provisioner.NamedTargets(ctx)
 	if err != nil {
@@ -68,7 +69,10 @@ func (c *namedTargetCatalog) Partitions(ctx context.Context) ([]Partition, error
 
 	seen := map[string]Partition{}
 	for _, nt := range named {
-		logical := c.logicalName(ctx, nt)
+		logical, err := c.logicalName(ctx, nt)
+		if err != nil {
+			return nil, err
+		}
 		if logical == "" {
 			// Fall back to deriving the logical name from the wire name.
 			logical = nt.Name
@@ -89,21 +93,38 @@ func (c *namedTargetCatalog) Partitions(ctx context.Context) ([]Partition, error
 }
 
 // logicalName reads a database's recorded partition name, opening it directly.
-// A target that cannot be opened or has no recorded name yields "" so the
-// caller can fall back to the wire name.
-func (c *namedTargetCatalog) logicalName(ctx context.Context, nt NamedTarget) string {
-	db, err := sql.Open(driverName, nt.Target.dsn)
+// A legacy target with no metadata table yields "" so the caller can fall back
+// to the wire name; other read/open failures are surfaced.
+func (c *namedTargetCatalog) logicalName(ctx context.Context, nt NamedTarget) (string, error) {
+	dsn, err := targetDSN(nt.Target)
 	if err != nil {
-		return ""
+		return "", redactToken(err, nt.Target.authToken)
+	}
+	db, err := sql.Open(driverName, dsn)
+	if err != nil {
+		return "", redactToken(err, nt.Target.authToken)
 	}
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 
-	name, err := readPartitionName(ctx, db)
+	var name string
+	err = withRemoteRouteRetry(ctx, isRemoteTarget(nt.Target.dsn), func() error {
+		var readErr error
+		name, readErr = readPartitionName(ctx, db)
+		if isMissingPartitionMetadata(readErr) {
+			name = ""
+			return nil
+		}
+		return readErr
+	})
 	if err != nil {
-		return ""
+		return "", redactToken(err, nt.Target.authToken)
 	}
-	return name
+	return name, nil
+}
+
+func isMissingPartitionMetadata(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no such table: _wee_events_partition_metadata")
 }
 
 func (c *namedTargetCatalog) PrepareShard(ctx context.Context, p Partition, db *sql.DB) error {

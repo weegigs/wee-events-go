@@ -60,16 +60,7 @@ func (s *Store) enumerate(ctx context.Context, planFor func(Partition) ReadPlan)
 			continue
 		}
 
-		sh, ok, err := s.openExisting(ctx, partition)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			continue
-		}
-		ids, err := sh.scan(ctx, func(ctx context.Context, db *sql.DB) ([]we.AggregateId, error) {
-			return scanAggregates(ctx, db, plan)
-		})
+		ids, err := s.scanPartition(ctx, partition, plan)
 		if err != nil {
 			return nil, err
 		}
@@ -84,6 +75,32 @@ func (s *Store) enumerate(ctx context.Context, planFor func(Partition) ReadPlan)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Encode().String() < out[j].Encode().String() })
 	return out, nil
+}
+
+func (s *Store) scanPartition(ctx context.Context, partition Partition, plan ReadPlan) ([]we.AggregateId, error) {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		sh, ok, err := s.openExisting(ctx, partition)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, nil
+		}
+		ids, err := sh.scan(ctx, func(ctx context.Context, db *sql.DB) ([]we.AggregateId, error) {
+			return scanAggregates(ctx, db, plan)
+		})
+		if err != nil {
+			lastErr = err
+			if !isShardRetryable(err) {
+				return nil, err
+			}
+			s.evictShard(partition, sh)
+			continue
+		}
+		return ids, nil
+	}
+	return nil, lastErr
 }
 
 // allKnownPartitions unions catalog discovery with the store's touched set.

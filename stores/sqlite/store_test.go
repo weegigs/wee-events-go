@@ -68,6 +68,126 @@ func TestEventStoreValidationSuiteLocalFile(t *testing.T) {
 	we.NewEventStoreValidationSuite(ctx, store).Run(t)
 }
 
+func TestRemoteRouteNotReadyDetectorMatchesSqldNamespace404(t *testing.T) {
+	err := errors.New("Hrana: `api error: `status=404 Not Found, body={\"error\":\"Namespace `spread-24` doesn't exist\"}`")
+
+	assert.True(t, isRemoteRouteNotReady(err))
+}
+
+func TestRemoteShardInvalidationDetectorMatchesStreamExpired(t *testing.T) {
+	err := errors.New("Hrana: `api error: `status=400 Bad Request, body={\"message\":\"The stream has expired due to inactivity\",\"code\":\"STREAM_EXPIRED\"}`")
+
+	assert.True(t, isRemoteShardInvalidation(err))
+}
+
+func TestRemotePublishRetryDetectorOnlyMatchesPreWriteStreamExpiry(t *testing.T) {
+	beginErr := errors.New("sqlite: failed to begin transaction: Hrana: `api error: `status=400 Bad Request, body={\"code\":\"STREAM_EXPIRED\"}`")
+	insertErr := errors.New("sqlite: failed to insert event: failed to prepare query INSERT INTO events error code = 3: Error preparing statement: Hrana: `http error: `connection closed before message completed``")
+	insertExecuteRouteErr := errors.New("sqlite: failed to insert event: failed to execute query INSERT INTO events error code = 2: Error executing statement: Hrana: `api error: `status=404 Not Found, body={\"error\":\"Namespace `spread-5` doesn't exist\"}``")
+	insertExecuteTransportErr := errors.New("sqlite: failed to insert event: failed to execute query INSERT INTO events error code = 1: Error executing statement: Hrana: `http error: `connection closed before message completed``")
+	commitErr := errors.New("sqlite: failed to commit transaction: Hrana: `api error: `status=400 Bad Request, body={\"code\":\"STREAM_EXPIRED\"}`")
+	poisonedBeginErr := errors.New("sqlite: failed to begin transaction: failed to execute query BEGIN IMMEDIATE error code = 2: Error executing statement: Hrana: `stream error: `Error { message: \"SQLite error: cannot start a transaction within a transaction\" }``")
+	routeReadErr := errors.New("sqlite: failed to read current revision: Hrana: `api error: `status=404 Not Found, body={\"error\":\"Namespace `spread-5` doesn't exist\"}`")
+	routeCommitErr := errors.New("sqlite: failed to commit transaction: Hrana: `api error: `status=404 Not Found, body={\"error\":\"Namespace `spread-5` doesn't exist\"}`")
+
+	assert.True(t, isRemotePublishRetryable(beginErr))
+	assert.True(t, isRemotePublishRetryable(insertErr))
+	assert.True(t, isRemotePublishRetryable(insertExecuteRouteErr))
+	assert.True(t, isRemotePublishRetryable(poisonedBeginErr))
+	assert.True(t, isRemotePublishRetryable(routeReadErr))
+	assert.False(t, isRemotePublishRetryable(insertExecuteTransportErr))
+	assert.False(t, isRemotePublishRetryable(commitErr))
+	assert.False(t, isRemotePublishRetryable(routeCommitErr))
+}
+
+func TestRemoteBackendsEnableRemoteGates(t *testing.T) {
+	assert.False(t, Local(t.TempDir(), Global()).remote)
+	assert.False(t, InMemory(Global()).remote)
+	assert.True(t, SqldDefault("http://localhost:8080", "", Global()).remote)
+	assert.True(t, SqldNamespaced("http://localhost:9090", "http://localhost:8080", "", ByType()).remote)
+	assert.True(t, Turso(TursoConfig{Prefix: "we"}, ByType()).remote)
+}
+
+func TestRemoteBackendDispatchGateConfiguration(t *testing.T) {
+	assert.Zero(t, Local(t.TempDir(), Global()).remoteDispatchLimit)
+	assert.Zero(t, InMemory(Global()).remoteDispatchLimit)
+	assert.Equal(t, defaultSqldRemoteDispatchLimit, SqldDefault("http://localhost:8080", "", Global()).remoteDispatchLimit)
+	assert.Equal(t, defaultSqldRemoteDispatchLimit, SqldNamespaced("http://localhost:9090", "http://localhost:8080", "", ByType()).remoteDispatchLimit)
+	assert.Zero(t, Turso(TursoConfig{Prefix: "we"}, ByType()).remoteDispatchLimit)
+}
+
+func TestRemoteRouteRetryRetriesRemoteSetupRouteNotReady(t *testing.T) {
+	attempts := 0
+
+	err := withRemoteRouteRetry(context.Background(), true, func() error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("Hrana: `api error: `status=404 Not Found, body={\"error\":\"Namespace `spread-24` doesn't exist\"}`")
+		}
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, attempts)
+}
+
+func TestRemoteRouteRetryRetriesRemoteSetupConnectionClosed(t *testing.T) {
+	attempts := 0
+
+	err := withRemoteRouteRetry(context.Background(), true, func() error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("failed to execute query SELECT 1 error code = 1: Error executing statement: Hrana: `http error: `connection closed before message completed``")
+		}
+		return nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, attempts)
+}
+
+func TestRemoteRouteRetryDoesNotRetryLocalSetup(t *testing.T) {
+	attempts := 0
+	want := errors.New("sqlite: failed to migrate schema: local failure")
+
+	err := withRemoteRouteRetry(context.Background(), false, func() error {
+		attempts++
+		return want
+	})
+
+	require.ErrorIs(t, err, want)
+	assert.Equal(t, 1, attempts)
+}
+
+func TestRemoteRouteRetryDoesNotRetryOtherRemoteErrors(t *testing.T) {
+	attempts := 0
+	want := errors.New("sqlite: failed to migrate schema: auth denied")
+
+	err := withRemoteRouteRetry(context.Background(), true, func() error {
+		attempts++
+		return want
+	})
+
+	require.ErrorIs(t, err, want)
+	assert.Equal(t, 1, attempts)
+}
+
+func TestLoadReopensStoppedShardWhileStoreIsOpen(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore(t)
+	id := makeAggregateId()
+	partition := store.strategy.PartitionFor(id)
+	sh, err := store.ensureShard(ctx, partition)
+	require.NoError(t, err)
+	sh.stop()
+
+	aggregate, err := store.Load(ctx, id)
+
+	require.NoError(t, err)
+	assert.Equal(t, we.InitialRevision, aggregate.Revision)
+	assert.Equal(t, id, aggregate.Id)
+}
+
 // SQLITE-S1.R4 — an aggregate with no rows loads as InitialRevision with no
 // events.
 func TestLoadInitial(t *testing.T) {
@@ -81,6 +201,24 @@ func TestLoadInitial(t *testing.T) {
 	assert.Empty(t, aggregate.Events)
 	assert.Equal(t, we.InitialRevision, aggregate.Revision)
 	assert.Equal(t, id, aggregate.Id)
+}
+
+func TestPublishLargeBatchSpansInsertChunks(t *testing.T) {
+	ctx := context.Background()
+	store := newMemoryStore(t)
+	id := makeAggregateId()
+	events := make([]we.DomainEvent, insertChunkSize*2+7)
+	for i := range events {
+		events[i] = testEvent{Value: "chunked"}
+	}
+
+	err := store.Publish(ctx, id, we.Options(), events...)
+	require.NoError(t, err)
+
+	aggregate, err := store.Load(ctx, id)
+	require.NoError(t, err)
+	assert.Len(t, aggregate.Events, len(events))
+	assert.Equal(t, revisionForSequence(uint64(len(events))), aggregate.Revision)
 }
 
 // SQLITE-S2.R3 — a UNIQUE (aggregate_type, aggregate_key, revision) violation

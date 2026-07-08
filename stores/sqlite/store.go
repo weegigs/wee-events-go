@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/avast/retry-go/v4"
 	_ "github.com/tursodatabase/go-libsql"
 
 	"github.com/weegigs/wee-events-go/we"
@@ -25,12 +26,24 @@ const defaultBusyTimeout = 5 * time.Second
 // revision conflict is NEVER retried here (SQLITE-S2.R5).
 const busyRetries = 3
 
+// insertChunkSize keeps multi-row inserts below conservative SQLite parameter
+// limits: each event row binds nine values, so 50 rows uses 450 parameters.
+const insertChunkSize = 50
+
+// defaultSqldRemoteDispatchLimit bounds concurrent database/sql calls into
+// go-libsql for sqld backends. Unbounded sqld fan-out has reproduced a hard
+// cgo hang in libsql_prepare during the full benchmark matrix; a small cap
+// preserves parallel shard execution without returning to a store-wide mutex.
+const defaultSqldRemoteDispatchLimit = 4
+
 // Backend pairs a strategy with the catalog that serves it. (Deferred here from
 // the catalog task because the constructors below are the first code to read
 // its fields.)
 type Backend struct {
-	strategy PartitionStrategy
-	catalog  PartitionCatalog
+	strategy            PartitionStrategy
+	catalog             PartitionCatalog
+	remote              bool
+	remoteDispatchLimit int
 }
 
 // Store is a partitioned SQLite/libSQL event store. A PartitionStrategy routes
@@ -46,6 +59,10 @@ type Store struct {
 	shards map[Partition]*shard
 	known  map[Partition]struct{}
 	closed bool
+
+	remoteSetup *writeGate
+	remoteOps   *operationGate
+	remote      bool
 }
 
 var _ we.EventStore = (*Store)(nil)
@@ -57,11 +74,14 @@ func NewStore(_ context.Context, encoder we.Encoder, backend Backend) (*Store, e
 		return nil, errors.New("sqlite: encoder is required")
 	}
 	return &Store{
-		strategy: backend.strategy,
-		catalog:  backend.catalog,
-		encoder:  encoder,
-		shards:   map[Partition]*shard{},
-		known:    map[Partition]struct{}{},
+		strategy:    backend.strategy,
+		catalog:     backend.catalog,
+		encoder:     encoder,
+		shards:      map[Partition]*shard{},
+		known:       map[Partition]struct{}{},
+		remoteSetup: &writeGate{},
+		remoteOps:   newOperationGate(backend.remoteDispatchLimit),
+		remote:      backend.remote,
 	}, nil
 }
 
@@ -82,25 +102,72 @@ func (s *Store) Close() error {
 
 func (s *Store) Load(ctx context.Context, id we.AggregateId) (we.Aggregate, error) {
 	partition := s.strategy.PartitionFor(id)
-	sh, ok, err := s.openExisting(ctx, partition)
-	if err != nil {
-		return we.Aggregate{}, err
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		sh, ok, err := s.openExisting(ctx, partition)
+		if err != nil {
+			return we.Aggregate{}, err
+		}
+		if !ok {
+			// A partition that was never provisioned holds no events; this is a
+			// state, not an error.
+			return we.Aggregate{Id: id, Revision: we.InitialRevision}, nil
+		}
+		aggregate, err := sh.load(ctx, id)
+		if err == nil {
+			return aggregate, nil
+		}
+		lastErr = err
+		if !isShardRetryable(err) {
+			return we.Aggregate{}, err
+		}
+		s.evictShard(partition, sh)
 	}
-	if !ok {
-		// A partition that was never provisioned holds no events; this is a
-		// state, not an error.
-		return we.Aggregate{Id: id, Revision: we.InitialRevision}, nil
-	}
-	return sh.load(ctx, id)
+	return we.Aggregate{}, lastErr
 }
 
 func (s *Store) Publish(ctx context.Context, id we.AggregateId, options we.PublishOptions, events ...we.DomainEvent) error {
 	partition := s.strategy.PartitionFor(id)
-	sh, err := s.ensureShard(ctx, partition)
-	if err != nil {
-		return err
+	var lastErr error
+	deadline := time.Now().Add(remoteRouteTimeout)
+	delay := 250 * time.Millisecond
+	for attempt := 0; ; attempt++ {
+		sh, err := s.ensureShard(ctx, partition)
+		if err != nil {
+			return err
+		}
+		err = sh.publish(ctx, id, options, events...)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		retryable := errors.Is(err, errShardClosed) || isRemotePublishRetryable(err)
+		if isShardRetryable(err) {
+			s.evictShard(partition, sh)
+		}
+		if !retryable {
+			return err
+		}
+		if !s.remote {
+			if attempt == 0 {
+				continue
+			}
+			return lastErr
+		}
+		if time.Now().After(deadline) {
+			return lastErr
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < 2*time.Second {
+			delay *= 2
+		}
 	}
-	return sh.publish(ctx, id, options, events...)
 }
 
 // ensureShard returns the partition's shard, provisioning and opening it on
@@ -118,11 +185,15 @@ func (s *Store) ensureShard(ctx context.Context, p Partition) (*shard, error) {
 	}
 	s.mu.Unlock()
 
-	target, err := s.catalog.EnsureTarget(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-	sh, err := s.openShard(ctx, p, target)
+	var sh *shard
+	err := s.withRemoteSetupGate(func() error {
+		target, err := s.catalog.EnsureTarget(ctx, p)
+		if err != nil {
+			return err
+		}
+		sh, err = s.openShard(ctx, p, target)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -157,12 +228,21 @@ func (s *Store) openExisting(ctx context.Context, p Partition) (*shard, bool, er
 	}
 	s.mu.Unlock()
 
-	target, ok, err := s.catalog.ExistingTarget(ctx, p)
+	var (
+		sh *shard
+		ok bool
+	)
+	err := s.withRemoteSetupGate(func() error {
+		target, exists, err := s.catalog.ExistingTarget(ctx, p)
+		if err != nil || !exists {
+			ok = exists
+			return err
+		}
+		ok = true
+		sh, err = s.openShard(ctx, p, target)
+		return err
+	})
 	if err != nil || !ok {
-		return nil, false, err
-	}
-	sh, err := s.openShard(ctx, p, target)
-	if err != nil {
 		return nil, false, err
 	}
 
@@ -181,6 +261,22 @@ func (s *Store) openExisting(ctx context.Context, p Partition) (*shard, bool, er
 	return sh, true, nil
 }
 
+func (s *Store) evictShard(p Partition, sh *shard) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if current, ok := s.shards[p]; ok && current == sh {
+		delete(s.shards, p)
+		sh.stop()
+	}
+}
+
+func (s *Store) withRemoteSetupGate(operation func() error) error {
+	if !s.remote {
+		return operation()
+	}
+	return s.remoteSetup.run(operation)
+}
+
 // openShard opens and migrates a target, applies the shard pragmas, records its
 // partition name, and starts its owner goroutine.
 func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*shard, error) {
@@ -195,6 +291,7 @@ func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*sha
 	db.SetMaxOpenConns(1)
 
 	local := isLocalFileTarget(target.dsn)
+	remote := isRemoteTarget(target.dsn)
 
 	// Pragmas before migration: for a local file WAL is a file-level property and
 	// busy_timeout a per-connection one, and the CREATE TABLE statements in migrate
@@ -207,24 +304,30 @@ func (s *Store) openShard(ctx context.Context, p Partition, target Target) (*sha
 		_ = db.Close()
 		return nil, redactToken(err, target.authToken)
 	}
-	// A freshly provisioned remote database returns its hostname before its edge
-	// route is live, so the first statement (migrate) can briefly 502. Wait for
-	// the route on remote targets only; local files are routable immediately.
-	if !local {
+	// A freshly provisioned remote database can return its hostname before its
+	// route is consistently live, so early setup statements may briefly fail
+	// with route/namespace errors. Wait before setup and retry those setup
+	// statements on remote targets only; local files and memory databases are
+	// routable immediately.
+	if remote {
 		if err := awaitRemoteReady(ctx, db); err != nil {
 			_ = db.Close()
 			return nil, redactToken(err, target.authToken)
 		}
 	}
-	if err := migrate(ctx, db); err != nil {
+	if err := withRemoteRouteRetry(ctx, remote, func() error {
+		return migrate(ctx, db)
+	}); err != nil {
 		_ = db.Close()
 		return nil, redactToken(err, target.authToken)
 	}
-	if err := s.catalog.PrepareShard(ctx, p, db); err != nil {
+	if err := withRemoteRouteRetry(ctx, remote, func() error {
+		return s.catalog.PrepareShard(ctx, p, db)
+	}); err != nil {
 		_ = db.Close()
 		return nil, redactToken(err, target.authToken)
 	}
-	return newShard(db, s.encoder, defaultBusyTimeout, local), nil
+	return newShard(db, s.encoder, defaultBusyTimeout, local, s.remoteOps), nil
 }
 
 // targetDSN returns the DSN a shard opens, attaching the auth token for remote
@@ -279,6 +382,14 @@ func isLocalFileTarget(dsn string) bool {
 	return strings.HasPrefix(dsn, "file:")
 }
 
+func isRemoteTarget(dsn string) bool {
+	u, err := url.Parse(dsn)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https" || u.Scheme == "libsql"
+}
+
 const remoteRouteTimeout = 30 * time.Second
 
 // awaitRemoteReady waits for a freshly provisioned remote database to become
@@ -288,26 +399,78 @@ const remoteRouteTimeout = 30 * time.Second
 // surfaces immediately. sqld targets are routable immediately, so SELECT 1
 // succeeds on the first try and the wait is a no-op.
 func awaitRemoteReady(ctx context.Context, db *sql.DB) error {
-	deadline := time.Now().Add(remoteRouteTimeout)
-	backoff := 250 * time.Millisecond
-	for {
+	return withRemoteRouteRetry(ctx, true, func() error {
 		var one int
-		err := db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
-		if err == nil {
-			return nil
-		}
-		if !strings.Contains(err.Error(), "no route configured") || time.Now().After(deadline) {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-		if backoff < 2*time.Second {
-			backoff *= 2
-		}
+		return db.QueryRowContext(ctx, "SELECT 1").Scan(&one)
+	})
+}
+
+func withRemoteRouteRetry(ctx context.Context, remote bool, operation func() error) error {
+	if !remote {
+		return operation()
 	}
+
+	retryCtx, cancel := context.WithTimeout(ctx, remoteRouteTimeout)
+	defer cancel()
+
+	return retry.Do(
+		operation,
+		retry.Context(retryCtx),
+		retry.UntilSucceeded(),
+		retry.Delay(250*time.Millisecond),
+		retry.MaxDelay(2*time.Second),
+		retry.DelayType(retry.BackOffDelay),
+		retry.RetryIf(isRemoteSetupRetryable),
+		retry.LastErrorOnly(true),
+		retry.WrapContextErrorWithLastError(true),
+	)
+}
+
+func isRemoteSetupRetryable(err error) bool {
+	return isRemoteRouteNotReady(err) || isRemoteShardInvalidation(err)
+}
+
+func isShardRetryable(err error) bool {
+	return errors.Is(err, errShardClosed) || isRemoteRouteNotReady(err) || isRemoteShardInvalidation(err)
+}
+
+func isRemoteRouteNotReady(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no route configured") ||
+		strings.Contains(msg, "Namespace `") && strings.Contains(msg, "doesn't exist")
+}
+
+func isRemoteShardInvalidation(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, sql.ErrConnDone) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "STREAM_EXPIRED") ||
+		strings.Contains(msg, "stream has expired") ||
+		strings.Contains(msg, "connection closed before message completed") ||
+		strings.Contains(msg, "cannot start a transaction within a transaction") ||
+		strings.Contains(msg, "sql: database is closed") ||
+		strings.Contains(msg, "database is closed")
+}
+
+func isRemotePublishRetryable(err error) bool {
+	msg := err.Error()
+	preWrite := strings.Contains(msg, "failed to begin transaction") ||
+		strings.Contains(msg, "failed to read current revision") ||
+		strings.Contains(msg, "failed to insert event: failed to prepare query")
+	if isRemoteShardInvalidation(err) {
+		return preWrite
+	}
+	if isRemoteRouteNotReady(err) {
+		return preWrite || strings.Contains(msg, "failed to insert event")
+	}
+	return false
 }
 
 // setWALJournalMode converts the database to WAL, retrying on the transient
@@ -360,7 +523,12 @@ func InMemory(strategy SingleTargetStrategy) Backend {
 // SqldDefault builds a backend over one shared sqld endpoint. Only single-target
 // strategies are legal.
 func SqldDefault(url, authToken string, strategy SingleTargetStrategy) Backend {
-	return Backend{strategy: strategy, catalog: newSingleTargetCatalog(Target{dsn: url, authToken: authToken})}
+	return Backend{
+		strategy:            strategy,
+		catalog:             newSingleTargetCatalog(Target{dsn: url, authToken: authToken}),
+		remote:              true,
+		remoteDispatchLimit: defaultSqldRemoteDispatchLimit,
+	}
 }
 
 // SqldNamespaced builds a backend that provisions one sqld namespace per
@@ -368,14 +536,19 @@ func SqldDefault(url, authToken string, strategy SingleTargetStrategy) Backend {
 // endpoint partitions are addressed under.
 func SqldNamespaced(adminURL, dataURL, authToken string, strategy NamingStrategy) Backend {
 	provisioner := newSqldProvisioner(adminURL, dataURL, authToken)
-	return Backend{strategy: strategy, catalog: newNamedTargetCatalog(strategy, provisioner)}
+	return Backend{
+		strategy:            strategy,
+		catalog:             newNamedTargetCatalog(strategy, provisioner),
+		remote:              true,
+		remoteDispatchLimit: defaultSqldRemoteDispatchLimit,
+	}
 }
 
 // Turso builds a backend that provisions one Turso platform database per
 // partition. Only naming strategies are legal.
 func Turso(config TursoConfig, strategy NamingStrategy) Backend {
 	provisioner := newTursoProvisioner(newHTTPTursoClient(config.APIToken), config)
-	return Backend{strategy: strategy, catalog: newNamedTargetCatalog(strategy, provisioner)}
+	return Backend{strategy: strategy, catalog: newNamedTargetCatalog(strategy, provisioner), remote: true}
 }
 
 func loadEvents(ctx context.Context, db *sql.DB, id we.AggregateId) (we.Aggregate, error) {
@@ -495,20 +668,23 @@ func publishOnce(ctx context.Context, db *sql.DB, busyTimeout time.Duration, loc
 		return conflict
 	}
 
-	const insert = `
-INSERT INTO events
-    (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
+	if err := insertEventRows(ctx, conn, id, current, rows); err != nil {
+		return err
+	}
 
-	for i, row := range rows {
-		// Revisions are the 1-based per-aggregate sequence formatted as 26-char
-		// hex. Sequence-derived revisions (not wall-clock ULIDs) are what make
-		// ordering and the expected-revision check correct across instances.
-		revision := revisionForSequence(current + uint64(i) + 1)
-		if _, err := conn.ExecContext(ctx, insert,
-			row.eventID, id.Type, id.Key, row.eventType, revision.String(),
-			nullable(row.causationID), nullable(row.correlationID), row.encoding, row.data,
-		); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("sqlite: failed to commit transaction: %w", err)
+	}
+	committed = true
+
+	return nil
+}
+
+func insertEventRows(ctx context.Context, conn *sql.Conn, id we.AggregateId, current uint64, rows []eventRow) error {
+	for start := 0; start < len(rows); start += insertChunkSize {
+		end := min(start+insertChunkSize, len(rows))
+		query, args := buildInsertEventsQuery(id, current, rows[start:end], start)
+		if _, err := conn.ExecContext(ctx, query, args...); err != nil {
 			// The UNIQUE (aggregate_type, aggregate_key, revision) index is the
 			// authoritative optimistic-concurrency guard: a concurrent appender
 			// that committed the same sequence first makes this insert violate
@@ -520,13 +696,34 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`
 			return fmt.Errorf("sqlite: failed to insert event: %w", err)
 		}
 	}
-
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return fmt.Errorf("sqlite: failed to commit transaction: %w", err)
-	}
-	committed = true
-
 	return nil
+}
+
+func buildInsertEventsQuery(id we.AggregateId, current uint64, rows []eventRow, offset int) (string, []any) {
+	var query strings.Builder
+	query.WriteString(`
+INSERT INTO events
+    (event_id, aggregate_type, aggregate_key, event_type, revision, causation_id, correlation_id, encoding, data)
+VALUES `)
+
+	args := make([]any, 0, len(rows)*9)
+	for i, row := range rows {
+		if i > 0 {
+			query.WriteString(", ")
+		}
+		query.WriteString("(?, ?, ?, ?, ?, ?, ?, ?, ?)")
+
+		// Revisions are the 1-based per-aggregate sequence formatted as 26-char
+		// hex. Sequence-derived revisions (not wall-clock ULIDs) are what make
+		// ordering and the expected-revision check correct across instances.
+		revision := revisionForSequence(current + uint64(offset+i) + 1)
+		args = append(args,
+			row.eventID, id.Type, id.Key, row.eventType, revision.String(),
+			nullable(row.causationID), nullable(row.correlationID), row.encoding, row.data,
+		)
+	}
+	query.WriteString(";")
+	return query.String(), args
 }
 
 // currentSequence returns the aggregate's current last sequence number — 0 for
