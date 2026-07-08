@@ -5,20 +5,71 @@ groups implemented in `/we/event-store-benchmark-suite.go`. Scenario semantics
 are matched to the wee-events.rs reference suite so results are comparable across
 implementations.
 
+## Fixed-Wave Metrics Benchmarks
+
+The standard benchmark suite remains the regression harness for `ns/op`,
+allocations, and `benchstat` comparisons. The fixed-wave metrics suite is the
+reporting harness for throughput and latency distribution.
+
+Run local metrics:
+
+```bash
+mise exec -- just bench-metrics
+```
+
+Run Docker-backed metrics:
+
+```bash
+mise exec -- just bench-metrics-integration
+```
+
+Run live Turso metrics:
+
+```bash
+mise exec -- just bench-metrics-turso
+```
+
+Run every metrics tier, including live Turso:
+
+```bash
+mise exec -- just bench-metrics-all
+```
+
+Canonical widths are `1,10,100`. If live Turso quota prevents 100 provisioned
+databases, run `mise exec -- just bench-metrics-turso 1,10,50` and label `50`
+as a quota-capped fallback.
+
+For wave workloads, `ns/op` is the elapsed time of the fixed workload. The
+custom metrics provide the useful comparison:
+
+- `ops/s` and `events/s` describe throughput.
+- `wave_p95_ms` describes the tail of the whole parallel wave.
+- `op_p95_ms` describes the tail of individual operations inside the wave.
+- `errors/op` must be zero for normal fan-out scenarios.
+
 **How to run**
 
 ```bash
 # Local stores only (no Docker)
 just bench
 
-# Docker-backed stores (testcontainers required)
+# Docker-backed stores (testcontainers required), including sqld-backed SQLite
 just bench-integration
+
+# Live Turso SQLite benchmarks
+# require TURSO_ORG, TURSO_GROUP, TURSO_DB_PREFIX, TURSO_API_TOKEN,
+# and TURSO_GROUP_TOKEN.
+just bench-turso
+
+# Every benchmark tier, including live Turso. Fails immediately if TURSO_* is
+# not configured.
+just bench-all
 
 # Compare two result files
 just bench-compare old.txt new.txt
 
 # Benchstat-grade statistics (6 samples recommended)
-go test -run '^$' -bench '.' -benchmem -count 6 -timeout 60m ./we ./stores/sqlite
+go test -run '^$' -bench '^(BenchmarkMemory|BenchmarkSqlite(InMemory|Local))' -benchmem -count 6 -timeout 60m ./we ./stores/sqlite
 ```
 
 Collected: 2026-06-11 · Apple M4 Max (darwin/arm64, 16 hardware threads),
