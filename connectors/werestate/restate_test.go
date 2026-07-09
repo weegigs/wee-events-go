@@ -253,7 +253,7 @@ func TestRejectionMapsToTerminalCarryingDetail(t *testing.T) {
 	rejection := we.MakeRejection(
 		"counter.limit-exceeded",
 		"increment would exceed the configured ceiling",
-		json.RawMessage(`{"ceiling":100}`),
+		map[string]we.ErrorField{"ceiling": we.MakeI64Field(100)},
 	)
 
 	mapped := mapError(rejection)
@@ -264,7 +264,9 @@ func TestRejectionMapsToTerminalCarryingDetail(t *testing.T) {
 	require.True(t, errors.As(mapped, &recovered), "rejection must stay recoverable through the terminal error")
 	assert.Equal(t, "counter.limit-exceeded", recovered.Code)
 	assert.Equal(t, "increment would exceed the configured ceiling", recovered.Message)
-	assert.JSONEq(t, `{"ceiling":100}`, string(recovered.Context))
+	ceiling, ok := recovered.Fields["ceiling"].I64()
+	require.True(t, ok)
+	assert.Equal(t, int64(100), ceiling)
 }
 
 // RESTATE-S3.R2 — a rejection wrapped in a larger error chain is still

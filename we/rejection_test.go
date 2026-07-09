@@ -1,7 +1,6 @@
 package we
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -11,32 +10,35 @@ import (
 )
 
 // REJECT-S1.R1 - the framework provides a Rejection value type carrying a code,
-// a message, and structured context, and it satisfies the error interface.
-func rejectionCarriesCodeMessageContext(t *testing.T) {
-	ctx := json.RawMessage(`{"state":"cancelled"}`)
-	rejection := MakeRejection("customer.cancelled", "customer is already cancelled", ctx)
+// a message, and structured fields from the closed scalar set, and it satisfies
+// the error interface.
+func rejectionCarriesCodeMessageFields(t *testing.T) {
+	rejection := MakeRejection("customer.cancelled", "customer is already cancelled",
+		map[string]ErrorField{"state": MakeTextField("cancelled")})
 
 	assert.Equal(t, "customer.cancelled", rejection.Code)
 	assert.Equal(t, "customer is already cancelled", rejection.Message)
-	assert.JSONEq(t, `{"state":"cancelled"}`, string(rejection.Context))
+	state, ok := rejection.Fields["state"].Text()
+	require.True(t, ok)
+	assert.Equal(t, "cancelled", state)
 
 	var asError error = rejection
 	assert.Equal(t, "customer.cancelled: customer is already cancelled", asError.Error())
 }
 
-// REJECT-S1.R1 - a Rejection constructed without context is still a valid error.
-func rejectionWithoutContextIsValid(t *testing.T) {
+// REJECT-S1.R1 - a Rejection constructed without fields is still a valid error.
+func rejectionWithoutFieldsIsValid(t *testing.T) {
 	rejection := MakeRejection("order.closed", "order is closed", nil)
 
-	assert.Nil(t, rejection.Context)
+	assert.Nil(t, rejection.Fields)
 	assert.Equal(t, "order.closed: order is closed", rejection.Error())
 }
 
 // REJECT-S1.R2, REJECT-S4.R1 - a Rejection returned as a plain error is
 // recoverable through the error chain via errors.As, even when wrapped.
 func rejectionRecoverableViaErrorsAs(t *testing.T) {
-	ctx := json.RawMessage(`{"reason":"closed"}`)
-	original := MakeRejection("order.closed", "order is closed", ctx)
+	original := MakeRejection("order.closed", "order is closed",
+		map[string]ErrorField{"reason": MakeTextField("closed")})
 
 	var err error = original
 	err = fmt.Errorf("dispatch failed: %w", err)
@@ -45,7 +47,28 @@ func rejectionRecoverableViaErrorsAs(t *testing.T) {
 	require.True(t, errors.As(err, &recovered), "expected to recover a Rejection, got %T", err)
 	assert.Equal(t, "order.closed", recovered.Code)
 	assert.Equal(t, "order is closed", recovered.Message)
-	assert.JSONEq(t, `{"reason":"closed"}`, string(recovered.Context))
+	reason, ok := recovered.Fields["reason"].Text()
+	require.True(t, ok)
+	assert.Equal(t, "closed", reason)
+}
+
+// A Rejection is a declared service error: its frame carries the same code,
+// message, and fields, so it round-trips any conformant boundary losslessly.
+func rejectionSatisfiesServiceErrorContract(t *testing.T) {
+	var _ ServiceErrorContract = Rejection{}
+
+	rejection := MakeRejection("account.insufficient-funds", "insufficient funds",
+		map[string]ErrorField{"balance": MakeI64Field(0), "requested": MakeI64Field(100)})
+
+	frame := rejection.ToErrorFrame()
+	assert.Equal(t, ErrorFrame{
+		Code:    "account.insufficient-funds",
+		Message: "insufficient funds",
+		Fields: map[string]ErrorField{
+			"balance":   MakeI64Field(0),
+			"requested": MakeI64Field(100),
+		},
+	}, frame)
 }
 
 // REJECT-S4.R1 - an infrastructure error is not recoverable as a Rejection.
@@ -93,9 +116,10 @@ func infrastructureErrorIsRetryable(t *testing.T) {
 }
 
 func TestRejection(t *testing.T) {
-	t.Run("carries code, message and context (REJECT-S1.R1)", rejectionCarriesCodeMessageContext)
-	t.Run("is valid without context (REJECT-S1.R1)", rejectionWithoutContextIsValid)
+	t.Run("carries code, message and fields (REJECT-S1.R1)", rejectionCarriesCodeMessageFields)
+	t.Run("is valid without fields (REJECT-S1.R1)", rejectionWithoutFieldsIsValid)
 	t.Run("recoverable via errors.As (REJECT-S1.R2, REJECT-S4.R1)", rejectionRecoverableViaErrorsAs)
+	t.Run("satisfies ServiceErrorContract", rejectionSatisfiesServiceErrorContract)
 	t.Run("infrastructure error is not a rejection (REJECT-S4.R1)", infrastructureErrorIsNotARejection)
 	t.Run("rejection is terminal (REJECT-S4.R1, REJECT-S4.R2)", rejectionIsTerminal)
 	t.Run("decode failure is terminal (REJECT-S4.R1, REJECT-S4.R2)", decodeFailureIsTerminal)

@@ -2,8 +2,6 @@ package account
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	es "github.com/weegigs/wee-events-go/we"
 )
@@ -32,11 +30,11 @@ var withdraw es.CommandHandlerFunction[Account, Withdraw] = func(ctx context.Con
 		return es.MakeRejection("account.not-open", "account is not open", nil)
 	}
 	if cmd.Amount > state.State.Balance {
-		payload, err := json.Marshal(map[string]int{"balance": state.State.Balance, "requested": cmd.Amount})
-		if err != nil {
-			return fmt.Errorf("account: failed to encode rejection context: %w", err)
-		}
-		return es.MakeRejection("account.insufficient-funds", "insufficient funds", payload)
+		return es.MakeRejection("account.insufficient-funds", "insufficient funds",
+			map[string]es.ErrorField{
+				"balance":   es.MakeI64Field(int64(state.State.Balance)),
+				"requested": es.MakeI64Field(int64(cmd.Amount)),
+			})
 	}
 	return publish(ctx, state.Aggregate, es.Options(es.WithExpectedRevision(state.Revision)), Withdrawn(cmd))
 }

@@ -2,7 +2,6 @@ package we
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"testing"
 
@@ -59,7 +58,8 @@ type bumpEvent struct{}
 // through the dispatcher and the entity service so errors.As recovers the
 // original code, message, and context.
 func rejectionSurvivesDispatcherAndService(t *testing.T) {
-	want := MakeRejection("bump.refused", "cannot bump in this state", json.RawMessage(`{"value":0}`))
+	want := MakeRejection("bump.refused", "cannot bump in this state",
+		map[string]ErrorField{"value": MakeI64Field(0)})
 
 	service, _ := newRejectionService(t, func(_ context.Context, _ bumpCommand, _ Entity[rejectionState], _ EventPublisher) error {
 		return want
@@ -72,7 +72,7 @@ func rejectionSurvivesDispatcherAndService(t *testing.T) {
 	require.True(t, errors.As(err, &recovered), "expected to recover a Rejection through the service, got %T", err)
 	assert.Equal(t, want.Code, recovered.Code)
 	assert.Equal(t, want.Message, recovered.Message)
-	assert.JSONEq(t, string(want.Context), string(recovered.Context))
+	assert.Equal(t, want.Fields, recovered.Fields)
 }
 
 // REJECT-S1.R4 - a handler that refuses a command records no event to the

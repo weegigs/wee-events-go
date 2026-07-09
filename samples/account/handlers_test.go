@@ -41,7 +41,12 @@ func TestGuardsReturnTypedRejections(t *testing.T) {
 		var rejection es.Rejection
 		require.True(t, errors.As(err, &rejection))
 		assert.Equal(t, "account.insufficient-funds", rejection.Code)
-		assert.JSONEq(t, `{"balance":10,"requested":25}`, string(rejection.Context))
+		balance, ok := rejection.Fields["balance"].I64()
+		require.True(t, ok)
+		assert.Equal(t, int64(10), balance)
+		requested, ok := rejection.Fields["requested"].I64()
+		require.True(t, ok)
+		assert.Equal(t, int64(25), requested)
 	})
 
 	t.Run("deposit on a missing account", func(t *testing.T) {

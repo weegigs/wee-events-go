@@ -3,6 +3,7 @@ package wehttp
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -104,24 +105,52 @@ type httpService[T any] struct {
 }
 
 // rejectionBody is the machine-readable payload returned for a domain rejection
-// (REJECT-S2.R2). It mirrors we.Rejection's JSON shape.
+// (REJECT-S2.R2). The context member is the rejection's fields flattened to
+// plain JSON values: the tagged encoding belongs to the error-frame wire, not
+// to this presentation edge (ADR-0011 decision 5).
 type rejectionBody struct {
-	Code    string          `json:"code"`
-	Message string          `json:"message"`
-	Context json.RawMessage `json:"context,omitempty"`
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Context map[string]any `json:"context,omitempty"`
+}
+
+// flattenFields renders the closed scalar fields as plain JSON values. A
+// zero-value field is a programmer error and fails the rendering (the caller
+// maps that to a static 5xx rather than shipping invented content).
+func flattenFields(fields map[string]we.ErrorField) (map[string]any, error) {
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	flat := make(map[string]any, len(fields))
+	for name, field := range fields {
+		if value, ok := field.Text(); ok {
+			flat[name] = value
+		} else if value, ok := field.I64(); ok {
+			flat[name] = value
+		} else if value, ok := field.U64(); ok {
+			flat[name] = value
+		} else if value, ok := field.Bool(); ok {
+			flat[name] = value
+		} else {
+			return nil, fmt.Errorf("wehttp: rejection field %q has no value", name)
+		}
+	}
+	return flat, nil
 }
 
 // marshalRejection renders the structured rejection body in the negotiated
 // response wire (ADR-0011 decision 5) and returns the body with its media
-// type. The CBOR rendering is built from the same structured values as the
-// JSON one: the rejection's JSON context is decoded to a value and rendered
-// natively — never embedded as opaque JSON text bytes.
+// type. Both renderings are built from the same flattened scalar values.
 func marshalRejection(rejection we.Rejection, asCBOR bool) ([]byte, string, error) {
+	context, err := flattenFields(rejection.Fields)
+	if err != nil {
+		return nil, "", err
+	}
 	if !asCBOR {
 		body, err := json.Marshal(rejectionBody{
 			Code:    rejection.Code,
 			Message: rejection.Message,
-			Context: rejection.Context,
+			Context: context,
 		})
 		return body, jsonWire, err
 	}
@@ -130,11 +159,7 @@ func marshalRejection(rejection we.Rejection, asCBOR bool) ([]byte, string, erro
 		"code":    rejection.Code,
 		"message": rejection.Message,
 	}
-	if len(rejection.Context) > 0 {
-		var context any
-		if err := json.Unmarshal(rejection.Context, &context); err != nil {
-			return nil, "", err
-		}
+	if context != nil {
 		resource["context"] = context
 	}
 	body, err := cbor.Marshal(resource)
@@ -157,8 +182,9 @@ func (service *httpService[T]) writeCommandError(w http.ResponseWriter, r *http.
 	var rejection we.Rejection
 	if errors.As(err, &rejection) {
 		service.log.Info().Err(err).Str("code", rejection.Code).Msg("command rejected")
-		// Marshal before committing the status so a malformed Context cannot
-		// leave a 422 with an empty body — fall back to 500 if encoding fails.
+		// Marshal before committing the status so an unrenderable field (a
+		// zero-value ErrorField) cannot leave a 422 with an empty body — fall
+		// back to 500 if flattening or encoding fails.
 		// The body is rendered in the Accept-negotiated wire; the plain-text
 		// http.Error paths below are not negotiated.
 		body, contentType, marshalErr := marshalRejection(rejection, acceptsCBOR(r))

@@ -54,7 +54,8 @@ func postCommand(t *testing.T, handler http.Handler) *httptest.ResponseRecorder 
 // REJECT-S2.R1, REJECT-S2.R2 - a refused command yields a 4xx with a JSON body
 // carrying the rejection's code, message, and context.
 func rejectionMapsToStructured4xx(t *testing.T) {
-	rejection := we.MakeRejection("bump.refused", "cannot bump in this state", json.RawMessage(`{"value":7}`))
+	rejection := we.MakeRejection("bump.refused", "cannot bump in this state",
+		map[string]we.ErrorField{"value": we.MakeI64Field(7)})
 	handler := NewHandler[struct{}](stubService{executeErr: rejection})
 
 	rec := postCommand(t, handler)
@@ -77,7 +78,8 @@ func rejectionMapsToStructured4xx(t *testing.T) {
 // mapped to a 4xx whose body carries the rejection's own code, message, and
 // context — not the wrapper's text.
 func wrappedRejectionMapsTo4xx(t *testing.T) {
-	rejection := we.MakeRejection("bump.refused", "no", json.RawMessage(`{"value":7}`))
+	rejection := we.MakeRejection("bump.refused", "no",
+		map[string]we.ErrorField{"value": we.MakeI64Field(7)})
 	wrapped := errors.Join(errors.New("execute command failed"), rejection)
 	handler := NewHandler[struct{}](stubService{executeErr: wrapped})
 
@@ -433,7 +435,34 @@ func decodeCBORValue(t *testing.T, body []byte) any {
 	t.Helper()
 	var value any
 	require.NoError(t, responseCBORDecMode.Unmarshal(body, &value))
-	return value
+	return normalizeCBORNumbers(value)
+}
+
+// normalizeCBORNumbers coerces CBOR's integer decode types (int64/uint64) to
+// float64 so a decoded CBOR body is truly JSON-equivalent: json.Unmarshal
+// renders every JSON number as float64, so a value-equality comparison against
+// it must not trip over CBOR's distinct integer representation. (Rejection
+// fields carry typed scalars — an I64 field encodes as a CBOR integer, a JSON
+// number — so the two codecs' decoded types differ though the value is equal.)
+func normalizeCBORNumbers(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, item := range v {
+			v[key] = normalizeCBORNumbers(item)
+		}
+		return v
+	case []any:
+		for i, item := range v {
+			v[i] = normalizeCBORNumbers(item)
+		}
+		return v
+	case int64:
+		return float64(v)
+	case uint64:
+		return float64(v)
+	default:
+		return value
+	}
 }
 
 func decodeJSONValue(t *testing.T, body []byte) any {
@@ -559,7 +588,8 @@ func responseWireNegotiationTable(t *testing.T) {
 // Accept: application/cbor renders the rejection's code, message, and context
 // as a CBOR document value-equal to the JSON rendering.
 func cborAcceptRendersRejectionBodyAsCBOR(t *testing.T) {
-	rejection := we.MakeRejection("bump.refused", "cannot bump in this state", json.RawMessage(`{"value":7}`))
+	rejection := we.MakeRejection("bump.refused", "cannot bump in this state",
+		map[string]we.ErrorField{"value": we.MakeI64Field(7)})
 	handler := NewHandler[struct{}](stubService{executeErr: rejection})
 
 	baseline := postCommand(t, handler)
@@ -577,7 +607,7 @@ func cborAcceptRendersRejectionBodyAsCBOR(t *testing.T) {
 // before any status is committed, in both response media: never a partial
 // 422, and no rejection or marshal-error detail reaches the body.
 func rejectionMarshalFailureMapsToStatic5xx(t *testing.T) {
-	rejection := we.MakeRejection("x", "y", json.RawMessage("{"))
+	rejection := we.MakeRejection("x", "y", map[string]we.ErrorField{"bad": {}})
 	handler := NewHandler[struct{}](stubService{executeErr: rejection})
 
 	t.Run("absent Accept renders the JSON path's static 500", func(t *testing.T) {
