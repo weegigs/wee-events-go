@@ -42,8 +42,8 @@ domain guards to use the rejection taxonomy, so that copying the sample produces
   `we.Rejection` values with exactly these codes: `account.already-open`,
   `account.not-open`, `account.insufficient-funds`.
 - **SURFACE-S1.R2** (ubiquitous) — The `account.insufficient-funds` rejection's
-  `context` shall carry `{"balance": <current balance>, "requested": <withdrawal
-  amount>}` from the actual command and state — no hardcoded values.
+  `fields` shall carry `balance` and `requested` as I64 fields (rendered as plain values
+  in the HTTP body's `context`) from the actual command and state — no hardcoded values.
 - **SURFACE-S1.R3** (event-driven) — When a refused account command flows through
   `wehttp`, the response shall be `422` with the rejection body (REJECT-S2 contract);
   when it flows through `werestate`, classification shall be terminal — never retried.
@@ -129,7 +129,7 @@ degraded-but-plausible behaviour.*
 
 | Requirement | Test |
 |---|---|
-| SURFACE-S1.R1–R3 | Account guards are unit-tested for typed rejections (`samples/account/handlers_test.go` `TestGuardsReturnTypedRejections` asserts `we.Rejection` with exact codes and context fields via `errors.As`); connector coverage is transitive through the shared `we.Rejection` type — wehttp's existing `TestCommandErrorClassification` maps any `we.Rejection` to a 422 body, and werestate's `mapError` tests assert terminal classification for any `we.Rejection` |
+| SURFACE-S1.R1–R3 | Account guards are unit-tested for typed rejections (`samples/account/handlers_test.go` `TestGuardsReturnTypedRejections` asserts `we.Rejection` with exact codes and typed fields via `errors.As`); connector coverage is transitive through the shared `we.Rejection` type — wehttp's existing `TestCommandErrorClassification` maps any `we.Rejection` to a 422 body, and werestate's `mapError` tests assert terminal classification for any `we.Rejection` |
 | SURFACE-S1.R4 | ADR-0005 text review (doc change, no test) |
 | SURFACE-S2.R1–R3 | Unit tests feed: deeply wrapped `TransactionCanceledException` (extra wrap layers) → `RevisionConflict`; reasons `[nil-Code, ConditionalCheckFailed]` → `RevisionConflict` without panic; reasons `[nil-Code]` only → original error |
 | SURFACE-S2.R4 | Unit: wrapped `fmt.Errorf("…%w", we.RevisionConflict)` still classifies |

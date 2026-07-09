@@ -13,7 +13,7 @@ bare `error`, so callers and edge adapters cannot tell "the customer is already 
 apart from "DynamoDB is down."
 
 After this feature a handler can refuse a command with a typed `Rejection` carrying a
-`code`, a `message`, and structured `context`; the boundary recovers it via `errors.As`;
+`code`, a `message`, and structured `fields` (closed scalar set: Text, I64, U64, Bool); the boundary recovers it via `errors.As`;
 the HTTP connector maps a rejection to a structured `4xx` and an infrastructure failure to
 a `5xx`; and the same taxonomy is consumable by the Restate connector (Feature 03) for
 terminal-versus-retryable mapping. A rejection is a **domain state**, not a thrown error —
@@ -31,18 +31,19 @@ rule (principle 3).
 ### REJECT-S1 — Refuse a command with a typed rejection
 
 *As an aggregate author, I want to refuse a command with a typed `Rejection` carrying a
-code, a message, and structured context, so that "not allowed in this state" is expressed
+code, a message, and structured fields (closed scalar set: Text, I64, U64, Bool), so that "not allowed in this state" is expressed
 as a domain outcome rather than an infrastructure crash.* (Principle 3 — "state is not an
 error": the refusal is a value in the model, not a thrown failure.)
 
 - **REJECT-S1.R1** (ubiquitous) — The framework shall provide a `Rejection` value type
-  carrying a `code`, a `message`, and structured `context`. *(See ADR-0005.)*
+  carrying a `code`, a `message`, and structured `fields` (closed scalar set: Text, I64, U64,
+  Bool). *(See ADR-0005.)*
 - **REJECT-S1.R2** (event-driven) — When a command handler refuses a command, the
   framework shall allow it to return a `Rejection` as its `error` without changing the
   handler signature.
 - **REJECT-S1.R3** (state-driven) — While a `Rejection` propagates through the dispatcher
   and the entity service, the framework shall preserve it so that `errors.As` recovers the
-  original `code`, `message`, and `context` unchanged.
+  original `code`, `message`, and `fields` unchanged.
 - **REJECT-S1.R4** (unwanted) — If a handler returns a `Rejection`, then the framework
   shall not record any event for that command. *(A refusal is a no-op against the stream,
   not a state change.)*
@@ -56,7 +57,7 @@ and from a server fault.*
 - **REJECT-S2.R1** (event-driven) — When a command path returns a value recoverable as a
   `Rejection` via `errors.As`, the HTTP connector shall respond with a `4xx` status.
 - **REJECT-S2.R2** (event-driven) — When the HTTP connector responds to a rejection, it
-  shall emit a JSON body carrying the rejection's `code`, `message`, and `context`.
+  shall emit a JSON body carrying the rejection's `code`, `message`, and `fields`.
 - **REJECT-S2.R3** (unwanted) — If a command path returns a `Rejection`, then the HTTP
   connector shall not respond with a `5xx`.
 
@@ -110,7 +111,7 @@ pub struct Rejection {
     pub code: String,
     pub message: String,
     #[serde(default)]
-    pub context: serde_json::Value,
+    pub fields: BTreeMap<FieldName, ErrorField>,
 }
 
 pub enum ServiceError<E> {
@@ -120,16 +121,25 @@ pub enum ServiceError<E> {
 }
 ```
 
+The `fields: BTreeMap<FieldName, ErrorField>` shape is the closed scalar field model
+(option A decision, 2026-07-09): a fixed, tagged variant set — Text, I64, U64, Bool —
+shared verbatim with the Go port, in place of the earlier opaque `serde_json::Value`
+context.
+
 `crates/wee-events/src/codec.rs` defines `CodecError` (the unified codec failure — see
 [Feature 01](01-cbor-codec.md)). The Restate connector ([Feature 03](03-restate-integration.md))
 maps `Rejection` to a Restate **terminal** error (not retried) and `Store`/`Codec` to
-retryable errors.
+retryable errors. The Restate connector encodes a recovered Rejection as a
+`wee-events:error-frame+json:` frame in the terminal error message so remote callers
+decode the declared error (see wee-events.rs
+`documents/plans/2026-06-22-restate-service-error-contract-design.md`).
 
 ### Go target
 
 - New `we/rejection.go`: a `Rejection` value type with `Code string`, `Message string`,
-  and `Context json.RawMessage` (raw JSON so callers get machine-readable detail, matching
-  Rust's `serde_json::Value`). It implements `error` (`Error() string` → `"code: message"`)
+  and `Fields map[string]ErrorField` (the closed scalar field model — flat scalars, never
+  opaque JSON — so detail stays branchable and lossless across implementations; option A
+  decision, 2026-07-09). It implements `error` (`Error() string` → `"code: message"`)
   and is recovered at boundaries via `errors.As`. A constructor follows the repo's
   `New*`/`Make*` convention.
 - The `Rejection | Store | Codec` distinction is **not** a sealed Go union: handlers keep
@@ -142,8 +152,9 @@ retryable errors.
 - **`we/dispatcher.go` / `we/service.go`** — propagate the error unchanged; do not wrap a
   `Rejection` in a way that hides it from `errors.As` (satisfies REJECT-S1.R3, REJECT-S3.R3).
 - **`connectors/wehttp/http.go`** — at the edge, classify: a recovered `Rejection` → `4xx`
-  (e.g. `409`/`422`) with a JSON body carrying `code`/`message`/`context`; everything else
-  (store, codec, unexpected, `RevisionConflict`) → `5xx`.
+  (e.g. `409`/`422`) with a JSON body carrying `code`/`message`/`context` (`context` is the
+  fields flattened to plain JSON values; the tagged encoding belongs to the error-frame
+  wire); everything else (store, codec, unexpected, `RevisionConflict`) → `5xx`.
 
 ### Coordination with Feature 01
 
@@ -164,10 +175,10 @@ infrastructure error this taxonomy classifies as `5xx`/retryable.
 
 | Requirement | Test |
 |---|---|
-| REJECT-S1.R1, REJECT-S1.R2 | Construct a `Rejection` with `code`/`message`/`context`; assert it satisfies `error` and a handler can return it as its `error`. |
+| REJECT-S1.R1, REJECT-S1.R2 | Construct a `Rejection` with `code`/`message`/`fields`; assert it satisfies `error` and a handler can return it as its `error`. |
 | REJECT-S1.R3 | A handler returns a `Rejection`; assert `errors.As` recovers it unchanged through the dispatcher and the entity service. |
 | REJECT-S1.R4 | A handler refuses a command; assert no event is recorded to the stream for that command. |
-| REJECT-S2.R1, REJECT-S2.R2 | `connectors/wehttp` handles a refused command; assert a `4xx` status and a JSON body carrying the rejection's `code`/`message`/`context`. |
+| REJECT-S2.R1, REJECT-S2.R2 | `connectors/wehttp` handles a refused command; assert a `4xx` status and a JSON body carrying the rejection's `code`/`message`/`fields`. |
 | REJECT-S2.R3, REJECT-S3.R2 | Inject a store error (and separately `RevisionConflict`) on the same command path; assert the response is `5xx`, never a `4xx` rejection body; assert a rejection is never `5xx`. |
 | REJECT-S3.R1, REJECT-S3.R3 | Inject a store/codec error; assert a `5xx`, and assert `errors.As` does not recover it as a `Rejection` through the dispatcher and service layers. |
 | REJECT-S4.R1, REJECT-S4.R2, REJECT-S4.R3 | Classify a `Rejection` and an infrastructure error via `errors.As`; assert the rejection is treated as terminal and the infrastructure error as retryable (the branch the Restate connector consumes). |

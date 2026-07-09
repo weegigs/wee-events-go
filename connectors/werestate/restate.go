@@ -13,6 +13,12 @@
 // we.AggregateId.Encode() — `type:key` (IDENTITY-S3.R7, ADR-0010). The
 // connector delegates all encoding and decoding to the canonical codec; no
 // local separator logic is maintained here.
+//
+// Errors: a recovered we.Rejection crosses the boundary as a
+// "wee-events:error-frame+json:" frame in the terminal error message (Restate
+// 0.9 has no typed error payload channel), byte-compatible with wee-events.rs.
+// The typed boundary client (client.go) decodes frames back into declared
+// errors and keeps transport failures in a distinct *TransportError lane.
 package werestate
 
 import (
