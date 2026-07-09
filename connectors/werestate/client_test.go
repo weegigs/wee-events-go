@@ -123,3 +123,106 @@ func TestClientUndecodableSuccessBodyIsTransportError(t *testing.T) {
 	var transport *TransportError
 	require.True(t, errors.As(err, &transport), "expected *TransportError, got %T: %v", err, err)
 }
+
+// framedFailureBody builds the exact ingress failure body the werestate server
+// produces: mapError encodes the rejection's frame into the terminal message,
+// and the ingress renders {"message": <terminal message>, "code": <status>}.
+func framedFailureBody(t *testing.T, rejection we.Rejection, status int) []byte {
+	t.Helper()
+	message, err := encodeErrorFrame(rejection.ToErrorFrame())
+	require.NoError(t, err)
+	body, err := json.Marshal(map[string]any{"message": message, "code": status})
+	require.NoError(t, err)
+	return body
+}
+
+// The declared lane: a framed 422 decodes back into a branchable we.Rejection
+// with its fields intact — the same value a caller would see in-process.
+func TestClientDecodesFramedRejection(t *testing.T) {
+	rejection := we.MakeRejection("account.insufficient-funds", "insufficient funds",
+		map[string]we.ErrorField{
+			"balance":   we.MakeI64Field(0),
+			"requested": we.MakeI64Field(100),
+		})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write(framedFailureBody(t, rejection, http.StatusUnprocessableEntity))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "account")
+	_, err := client.Execute(context.Background(), clientAggregateId(t), we.RemoteCommand{})
+
+	var recovered we.Rejection
+	require.True(t, errors.As(err, &recovered), "expected we.Rejection, got %T: %v", err, err)
+	assert.Equal(t, rejection, recovered)
+
+	var transport *TransportError
+	assert.False(t, errors.As(err, &transport), "a declared error must never read as a transport failure")
+}
+
+// insufficientFundsError is a service-specific declared error a caller might
+// define; the decoder test proves callers can branch on their own types via
+// errors.As rather than the generic rejection.
+type insufficientFundsError struct {
+	Balance   int64
+	Requested int64
+}
+
+func (e *insufficientFundsError) Error() string {
+	return "insufficient funds"
+}
+
+// A registered FrameDecoder claims frames it recognises, so callers branch on
+// their own declared error types rather than the generic rejection.
+func TestClientCustomDecoderClaimsFrame(t *testing.T) {
+	rejection := we.MakeRejection("account.insufficient-funds", "insufficient funds",
+		map[string]we.ErrorField{
+			"balance":   we.MakeI64Field(25),
+			"requested": we.MakeI64Field(100),
+		})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write(framedFailureBody(t, rejection, http.StatusUnprocessableEntity))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "account", Decoder(func(frame we.ErrorFrame) (error, bool) {
+		if frame.Code != "account.insufficient-funds" {
+			return nil, false
+		}
+		balance, _ := frame.Fields["balance"].I64()
+		requested, _ := frame.Fields["requested"].I64()
+		return &insufficientFundsError{Balance: balance, Requested: requested}, true
+	}))
+
+	_, err := client.Execute(context.Background(), clientAggregateId(t), we.RemoteCommand{})
+
+	var declared *insufficientFundsError
+	require.True(t, errors.As(err, &declared), "expected *insufficientFundsError, got %T: %v", err, err)
+	assert.Equal(t, int64(25), declared.Balance)
+	assert.Equal(t, int64(100), declared.Requested)
+}
+
+// A decoder that declines passes through to the generic rejection fallback.
+func TestClientUnclaimedFrameFallsBackToRejection(t *testing.T) {
+	rejection := we.MakeRejection("order.closed", "order is closed", nil)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write(framedFailureBody(t, rejection, http.StatusUnprocessableEntity))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "order", Decoder(func(we.ErrorFrame) (error, bool) {
+		return nil, false
+	}))
+
+	_, err := client.Execute(context.Background(), clientAggregateId(t), we.RemoteCommand{})
+
+	var recovered we.Rejection
+	require.True(t, errors.As(err, &recovered))
+	assert.Equal(t, "order.closed", recovered.Code)
+}
