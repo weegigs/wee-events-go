@@ -282,3 +282,28 @@ func TestClientUnclaimedFrameFallsBackToRejection(t *testing.T) {
 	require.True(t, errors.As(err, &recovered))
 	assert.Equal(t, "order.closed", recovered.Code)
 }
+
+// A buggy decoder that claims a frame but returns a nil error must be treated as
+// unclaimed: the call still fails, falling through to the generic rejection
+// fallback rather than surfacing a non-2xx response as an empty success.
+func TestClientNilClaimedDecoderFallsBackToRejection(t *testing.T) {
+	rejection := we.MakeRejection("order.closed", "order is closed", nil)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write(framedFailureBody(t, rejection, http.StatusUnprocessableEntity))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "order", Decoder(func(we.ErrorFrame) (error, bool) {
+		return nil, true
+	}))
+
+	_, err := client.Execute(context.Background(), clientAggregateId(t), we.RemoteCommand{})
+
+	require.Error(t, err, "a nil claimed decoder result must never surface as a successful entity")
+
+	var recovered we.Rejection
+	require.True(t, errors.As(err, &recovered), "expected we.Rejection, got %T: %v", err, err)
+	assert.Equal(t, "order.closed", recovered.Code)
+}

@@ -40,7 +40,9 @@ func (e *TransportError) Unwrap() error { return e.cause }
 // FrameDecoder maps a decoded error frame to a service-specific declared
 // error. It returns ok=false to pass the frame to the next decoder; a frame no
 // decoder claims falls back to the generic we.Rejection carrying the frame's
-// code, message, and fields.
+// code, message, and fields. A claiming decoder must return a non-nil error; a
+// nil claimed error is treated as unclaimed and falls through to the generic
+// rejection fallback.
 type FrameDecoder func(we.ErrorFrame) (error, bool)
 
 // Client is the typed boundary handle for a werestate service reached through
@@ -166,7 +168,7 @@ func (c *Client) classifyFailure(status int, body []byte) error {
 	}
 
 	for _, decode := range c.decoders {
-		if declared, claimed := decode(frame); claimed {
+		if declared, claimed := decode(frame); claimed && declared != nil {
 			return declared
 		}
 	}

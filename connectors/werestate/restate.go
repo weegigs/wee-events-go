@@ -260,14 +260,11 @@ func decodeKey(key string) (we.AggregateId, error) {
 //
 //   - we.Rejection (recovered via errors.As) — a domain refusal of a well-formed
 //     command. TERMINAL: retrying a refused command cannot change the outcome.
-//     The rejection value is the wrapped error, so its code/message/context stay
-//     recoverable through the terminal error's Unwrap chain (RESTATE-S3.R2,
-//     RESTATE-S3.R3).
 //     The terminal message carries the rejection encoded as a
-//     "wee-events:error-frame+json:" frame so remote callers decode the
-//     declared error; the rejection value additionally stays recoverable
-//     in-process through the terminal error's Unwrap chain (RESTATE-S3.R2,
-//     RESTATE-S3.R3).
+//     "wee-events:error-frame+json:" frame so remote callers decode the declared
+//     error, and the rejection value stays recoverable in-process — its code,
+//     message, and fields intact — through the terminal error's Unwrap chain
+//     (RESTATE-S3.R2, RESTATE-S3.R3).
 //   - *we.DecodeError (recovered via errors.As) — an inbound command payload that
 //     declared an unsupported encoding or carried malformed bytes. TERMINAL: the
 //     bytes are deterministically bad, so retrying loops forever on a poison
