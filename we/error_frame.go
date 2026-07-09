@@ -129,3 +129,56 @@ func (f *ErrorField) UnmarshalJSON(data []byte) error {
 	}
 	return nil
 }
+
+// ErrorFrame is the shared cross-boundary representation of a declared service
+// error: a stable code, a human-readable message, and flat scalar fields. It is
+// the presentation contract for errors (ADR-0011 layering) — JSON is one codec
+// for it, owned by the transport edge, never by this type's consumers.
+type ErrorFrame struct {
+	Code    string
+	Message string
+	Fields  map[string]ErrorField
+}
+
+// errorFrameWire fixes the JSON key order (code, message, fields) to match the
+// Rust struct declaration order, keeping the encodings byte-identical.
+type errorFrameWire struct {
+	Code    string                `json:"code"`
+	Message string                `json:"message"`
+	Fields  map[string]ErrorField `json:"fields"`
+}
+
+// MarshalJSON always emits the fields key ("fields":{} when empty): the Rust
+// decoder requires it.
+func (f ErrorFrame) MarshalJSON() ([]byte, error) {
+	fields := f.Fields
+	if fields == nil {
+		fields = map[string]ErrorField{}
+	}
+	return json.Marshal(errorFrameWire{Code: f.Code, Message: f.Message, Fields: fields})
+}
+
+// UnmarshalJSON mirrors serde's strictness: a payload without a fields object
+// is not a frame.
+func (f *ErrorFrame) UnmarshalJSON(data []byte) error {
+	var wire errorFrameWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Fields == nil {
+		return errors.New("we: error frame missing fields object")
+	}
+	f.Code = wire.Code
+	f.Message = wire.Message
+	f.Fields = wire.Fields
+	return nil
+}
+
+// ServiceErrorContract is the boundary-facing face of a declared service
+// error: any error a caller is expected to branch on across a transport must
+// render itself as an ErrorFrame. It is a service concept, not a transport
+// one — implementations must not leak JSON, HTTP statuses, or Restate types.
+type ServiceErrorContract interface {
+	error
+	ToErrorFrame() ErrorFrame
+}
