@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -267,6 +268,15 @@ func TestRejectionMapsToTerminalCarryingDetail(t *testing.T) {
 	ceiling, ok := recovered.Fields["ceiling"].I64()
 	require.True(t, ok)
 	assert.Equal(t, int64(100), ceiling)
+
+	// The cross-boundary guarantee: the terminal error's message IS the encoded
+	// frame (no decoration — Rust strips the prefix strictly), so a remote
+	// caller recovers code, message, and fields without any in-process error
+	// chain to lean on; the 422 still rides the code channel.
+	frame, ok := decodeErrorFrame(mapped.Error())
+	require.True(t, ok, "terminal message must carry an encoded error frame, got %q", mapped.Error())
+	assert.Equal(t, rejection.ToErrorFrame(), frame)
+	assert.Equal(t, restate.Code(http.StatusUnprocessableEntity), restate.ErrorCode(mapped))
 }
 
 // RESTATE-S3.R2 — a rejection wrapped in a larger error chain is still

@@ -257,6 +257,11 @@ func decodeKey(key string) (we.AggregateId, error) {
 //     The rejection value is the wrapped error, so its code/message/context stay
 //     recoverable through the terminal error's Unwrap chain (RESTATE-S3.R2,
 //     RESTATE-S3.R3).
+//     The terminal message carries the rejection encoded as a
+//     "wee-events:error-frame+json:" frame so remote callers decode the
+//     declared error; the rejection value additionally stays recoverable
+//     in-process through the terminal error's Unwrap chain (RESTATE-S3.R2,
+//     RESTATE-S3.R3).
 //   - *we.DecodeError (recovered via errors.As) — an inbound command payload that
 //     declared an unsupported encoding or carried malformed bytes. TERMINAL: the
 //     bytes are deterministically bad, so retrying loops forever on a poison
@@ -282,7 +287,18 @@ func mapError(err error) error {
 
 	var rejection we.Rejection
 	if errors.As(err, &rejection) {
-		return restate.TerminalError(err, http.StatusUnprocessableEntity)
+		message, encodeErr := encodeErrorFrame(rejection.ToErrorFrame())
+		if encodeErr != nil {
+			// A frame that cannot encode is a programmer error (a zero-value
+			// field); surface it as the fault it is rather than shipping a
+			// half-formed frame.
+			return restate.TerminalError(fmt.Errorf("werestate: rejection frame not encodable: %w", errors.Join(encodeErr, err)), http.StatusInternalServerError)
+		}
+		// framedError wraps OUTSIDE the SDK terminal error: the runtime ships
+		// the outermost Error() string as the failure message, and the SDK's
+		// code wrapper decorates its message with "[422] ", which would break
+		// the frame prefix. IsTerminalError and ErrorCode read through Unwrap.
+		return &framedError{message: message, cause: restate.TerminalError(err, http.StatusUnprocessableEntity)}
 	}
 
 	var decode *we.DecodeError
