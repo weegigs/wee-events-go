@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/weegigs/wee-events-go/samples/account"
 	"github.com/weegigs/wee-events-go/samples/counter"
 	"github.com/weegigs/wee-events-go/we"
 )
@@ -65,13 +67,16 @@ func incrementCommand(t *testing.T, amount int) we.RemoteCommand {
 // startEnvironment registers the connector's virtual object with a real Restate
 // runtime and returns an ingress client plus the backing store. It mirrors the
 // SDK's testing.StartWithOptions, written against testcontainers v0.42.0.
-func startEnvironment(t *testing.T) (*ingress.Client, *memoryStore) {
+func startEnvironment(t *testing.T) (*ingress.Client, string, *memoryStore) {
 	t.Helper()
 
 	store := newMemoryStore(we.MakeJSONEncoder())
 	svc := NewService(counterService(store))
 
-	restateSrv := server.NewRestate().Bind(svc.Definition(serviceName))
+	accountSvc := NewService(account.Service(store))
+	restateSrv := server.NewRestate().
+		Bind(svc.Definition(serviceName)).
+		Bind(accountSvc.Definition("account"))
 	restateHandler, err := restateSrv.Handler()
 	require.NoError(t, err)
 
@@ -88,14 +93,14 @@ func startEnvironment(t *testing.T) (*ingress.Client, *memoryStore) {
 	sdkPort, err := strconv.Atoi(srvURL.Port())
 	require.NoError(t, err)
 
-	client := startRestateRuntime(t, sdkPort)
-	return client, store
+	client, ingressURL := startRestateRuntime(t, sdkPort)
+	return client, ingressURL, store
 }
 
 // startRestateRuntime runs the Restate container, registers the SDK endpoint
 // listening on the host's sdkPort as a deployment, and returns an ingress
 // client for it.
-func startRestateRuntime(t *testing.T, sdkPort int) *ingress.Client {
+func startRestateRuntime(t *testing.T, sdkPort int) (*ingress.Client, string) {
 	t.Helper()
 
 	ctx := t.Context()
@@ -133,14 +138,15 @@ func startRestateRuntime(t *testing.T, sdkPort int) *ingress.Client {
 	require.NoError(t, res.Body.Close())
 	require.Equal(t, http.StatusCreated, res.StatusCode)
 
-	return ingress.NewClient(fmt.Sprintf("http://localhost:%s", mappedIngress.Port()))
+	ingressURL := fmt.Sprintf("http://localhost:%s", mappedIngress.Port())
+	return ingress.NewClient(ingressURL), ingressURL
 }
 
 // RESTATE-S2.R1 / RESTATE-S2.R3 — executing increment twice with the same
 // idempotency key applies the command once; the replayed request returns the
 // original result rather than appending new events.
 func TestIdempotentExecute(t *testing.T) {
-	client, store := startEnvironment(t)
+	client, _, store := startEnvironment(t)
 	ctx := context.Background()
 
 	key := "counter:idem-1"
@@ -169,7 +175,7 @@ func TestIdempotentExecute(t *testing.T) {
 // RESTATE-S1.R1 / RESTATE-S1.R2 / RESTATE-S1.R3 — the registered object serves
 // load and execute against a live runtime; execute advances state, load reads it.
 func TestLoadAndExecuteThroughRuntime(t *testing.T) {
-	client, _ := startEnvironment(t)
+	client, _, _ := startEnvironment(t)
 	ctx := context.Background()
 
 	key := "counter:live-1"
@@ -186,4 +192,55 @@ func TestLoadAndExecuteThroughRuntime(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, float64(9), loaded["current"])
 	assert.NotEmpty(t, loaded["$revision"])
+}
+
+// remoteCommand JSON-encodes a typed command into the RemoteCommand envelope.
+func remoteCommand(t *testing.T, command any) we.RemoteCommand {
+	t.Helper()
+	payload, err := json.Marshal(command)
+	require.NoError(t, err)
+	return we.RemoteCommand{
+		CommandName: we.CommandNameOf(command),
+		Payload:     we.Data{Encoding: "application/json", Data: payload},
+	}
+}
+
+// The full conformance loop for the error-frame contract: a domain rejection
+// raised inside a handler crosses a real Restate runtime — mapError encodes
+// the frame into the terminal message, the ingress carries it, and the typed
+// boundary client decodes it back into a branchable we.Rejection with its
+// fields intact. This is the cross-boundary coverage the 2026-07-08
+// conformance review flagged as missing.
+func TestRejectionRoundTripsAcrossBoundary(t *testing.T) {
+	_, ingressURL, _ := startEnvironment(t)
+
+	id, err := we.MakeAggregateId("account", "boundary-1")
+	require.NoError(t, err)
+
+	client := NewClient(ingressURL, "account")
+	ctx := context.Background()
+
+	_, err = client.Execute(ctx, id, remoteCommand(t, account.Open{Owner: "kevin"}))
+	require.NoError(t, err, "opening the account must succeed")
+
+	loaded, err := client.Load(ctx, id)
+	require.NoError(t, err, "the typed client's load path must work against real ingress")
+	assert.Equal(t, we.EncodedAggregateId("account:boundary-1"), loaded.ID)
+
+	_, err = client.Execute(ctx, id, remoteCommand(t, account.Withdraw{Amount: 100}))
+
+	var rejection we.Rejection
+	require.True(t, errors.As(err, &rejection), "expected we.Rejection, got %T: %v", err, err)
+	assert.Equal(t, "account.insufficient-funds", rejection.Code)
+
+	balance, ok := rejection.Fields["balance"].I64()
+	require.True(t, ok, "rejection must carry the balance field across the boundary")
+	assert.Equal(t, int64(0), balance)
+
+	requested, ok := rejection.Fields["requested"].I64()
+	require.True(t, ok, "rejection must carry the requested field across the boundary")
+	assert.Equal(t, int64(100), requested)
+
+	var transport *TransportError
+	assert.False(t, errors.As(err, &transport), "a declared rejection must not classify as transport")
 }

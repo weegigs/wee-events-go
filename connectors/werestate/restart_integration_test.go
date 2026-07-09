@@ -159,7 +159,7 @@ func TestServiceRestartMidInvocation(t *testing.T) {
 	require.NoError(t, err)
 
 	endpoint := newRestartableEndpoint(t, restateHandler)
-	client := startRestateRuntime(t, endpoint.port())
+	client, _ := startRestateRuntime(t, endpoint.port())
 	ctx := context.Background()
 
 	const key = "counter:restart-1"
