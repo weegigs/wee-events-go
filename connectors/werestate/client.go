@@ -160,7 +160,7 @@ func (c *Client) classifyFailure(status int, body []byte) error {
 		return &TransportError{Status: status, Message: string(body)}
 	}
 
-	frame, ok := decodeErrorFrame(failure.Message)
+	frame, ok := decodeErrorFrame(stripIngressDecoration(failure.Message))
 	if !ok {
 		return &TransportError{Status: status, Message: failure.Message}
 	}
@@ -171,4 +171,26 @@ func (c *Client) classifyFailure(status int, body []byte) error {
 		}
 	}
 	return we.Rejection(frame)
+}
+
+// stripIngressDecoration removes the "[<code>] " prefix the Restate runtime
+// prepends to a terminal error's message when rendering the ingress failure
+// body. The decoration is a transport artifact of the ingress edge — it is
+// not part of the error-frame contract, so it is stripped here rather than
+// tolerated in the shared frame codec.
+func stripIngressDecoration(message string) string {
+	rest, ok := strings.CutPrefix(message, "[")
+	if !ok {
+		return message
+	}
+	digits, undecorated, found := strings.Cut(rest, "] ")
+	if !found || digits == "" {
+		return message
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return message
+		}
+	}
+	return undecorated
 }

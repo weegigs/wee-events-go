@@ -162,6 +162,62 @@ func TestClientDecodesFramedRejection(t *testing.T) {
 	assert.False(t, errors.As(err, &transport), "a declared error must never read as a transport failure")
 }
 
+// The real Restate ingress decorates a terminal error's message with a
+// "[<code>] " prefix before rendering the failure body — the form observed at
+// the live boundary in TestRejectionRoundTripsAcrossBoundary. The client must
+// strip that transport artifact before frame decode so the declared rejection
+// still comes back with its fields intact.
+func TestClientDecodesDecoratedFramedRejection(t *testing.T) {
+	rejection := we.MakeRejection("account.insufficient-funds", "insufficient funds",
+		map[string]we.ErrorField{
+			"balance":   we.MakeI64Field(0),
+			"requested": we.MakeI64Field(100),
+		})
+
+	message, err := encodeErrorFrame(rejection.ToErrorFrame())
+	require.NoError(t, err)
+	body, err := json.Marshal(map[string]any{
+		"message": "[422] " + message,
+		"code":    http.StatusUnprocessableEntity,
+	})
+	require.NoError(t, err)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "account")
+	_, err = client.Execute(context.Background(), clientAggregateId(t), we.RemoteCommand{})
+
+	var recovered we.Rejection
+	require.True(t, errors.As(err, &recovered), "expected we.Rejection, got %T: %v", err, err)
+	assert.Equal(t, rejection, recovered)
+
+	var transport *TransportError
+	assert.False(t, errors.As(err, &transport), "a declared error must never read as a transport failure")
+}
+
+// A decorated NON-frame message stays in the transport lane, and the
+// TransportError preserves the original decorated message — stripping is only
+// an aid to frame decode, never a rewrite of transport diagnostics.
+func TestClientDecoratedPlainFailureStaysTransport(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"message":"[500] store is down","code":500}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "counter")
+	_, err := client.Load(context.Background(), clientAggregateId(t))
+
+	var transport *TransportError
+	require.True(t, errors.As(err, &transport), "expected *TransportError, got %T: %v", err, err)
+	assert.Equal(t, http.StatusInternalServerError, transport.Status)
+	assert.Equal(t, "[500] store is down", transport.Message, "the transport lane must keep the decorated original")
+}
+
 // insufficientFundsError is a service-specific declared error a caller might
 // define; the decoder test proves callers can branch on their own types via
 // errors.As rather than the generic rejection.
