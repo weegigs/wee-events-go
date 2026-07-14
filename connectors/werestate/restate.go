@@ -14,7 +14,8 @@
 // connector delegates all encoding and decoding to the canonical codec; no
 // local separator logic is maintained here.
 //
-// Errors: a recovered we.Rejection crosses the boundary as a
+// Errors: a recovered declared service error (we.ServiceErrorContract;
+// we.Rejection is the base case) crosses the boundary as a
 // "wee-events:error-frame+json:" frame in the terminal error message (Restate
 // 0.9 has no typed error payload channel), byte-compatible with wee-events.rs.
 // The typed boundary client (client.go) decodes frames back into declared
@@ -258,13 +259,15 @@ func decodeKey(key string) (we.AggregateId, error) {
 // returns it) or leaving it RETRYABLE (the runtime retries). The rule, using the
 // Feature 05 rejection taxonomy:
 //
-//   - we.Rejection (recovered via errors.As) — a domain refusal of a well-formed
-//     command. TERMINAL: retrying a refused command cannot change the outcome.
-//     The terminal message carries the rejection encoded as a
+//   - we.ServiceErrorContract (recovered via errors.As; we.Rejection is the
+//     base case) — a declared service error the caller is expected to branch
+//     on. TERMINAL: retrying a declared refusal cannot change the outcome.
+//     The terminal message carries the error rendered as a
 //     "wee-events:error-frame+json:" frame so remote callers decode the declared
-//     error, and the rejection value stays recoverable in-process — its code,
-//     message, and fields intact — through the terminal error's Unwrap chain
-//     (RESTATE-S3.R2, RESTATE-S3.R3).
+//     error, and the original error value stays recoverable in-process —
+//     through the terminal error's Unwrap chain (RESTATE-S3.R2, RESTATE-S3.R3).
+//     Declaring the contract is a stronger statement of intent than the
+//     built-in classifications below, so this check runs first.
 //   - *we.DecodeError (recovered via errors.As) — an inbound command payload that
 //     declared an unsupported encoding or carried malformed bytes. TERMINAL: the
 //     bytes are deterministically bad, so retrying loops forever on a poison
@@ -288,14 +291,14 @@ func mapError(err error) error {
 		return err
 	}
 
-	var rejection we.Rejection
-	if errors.As(err, &rejection) {
-		message, encodeErr := encodeErrorFrame(rejection.ToErrorFrame())
+	var contract we.ServiceErrorContract
+	if errors.As(err, &contract) {
+		message, encodeErr := encodeErrorFrame(contract.ToErrorFrame())
 		if encodeErr != nil {
 			// A frame that cannot encode is a programmer error (a zero-value
 			// field); surface it as the fault it is rather than shipping a
 			// half-formed frame.
-			return restate.TerminalError(fmt.Errorf("werestate: rejection frame not encodable: %w", errors.Join(encodeErr, err)), http.StatusInternalServerError)
+			return restate.TerminalError(fmt.Errorf("werestate: declared error frame not encodable: %w", errors.Join(encodeErr, err)), http.StatusInternalServerError)
 		}
 		// framedError wraps OUTSIDE the SDK terminal error: the runtime ships
 		// the outermost Error() string as the failure message, and the SDK's

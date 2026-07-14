@@ -85,9 +85,10 @@ surfaces as a terminal error, distinct from an infrastructure fault.
 - **RESTATE-S3.R1** (event-driven) — When a handler fails with an infrastructure error
   (store or transport), the framework shall surface it as a retryable Restate error so the
   runtime may retry.
-- **RESTATE-S3.R2** (event-driven) — When a handler fails with a domain rejection (the
-  Feature 05 taxonomy), the framework shall surface it as a Restate **terminal** error
-  carrying the rejection code, message, and context.
+- **RESTATE-S3.R2** (event-driven) — When a handler fails with a declared service error
+  (any `we.ServiceErrorContract` implementation; the Feature 05 rejection is the base
+  case), the framework shall surface it as a Restate **terminal** error carrying the
+  declared code, message, and fields.
 - **RESTATE-S3.R3** (unwanted) — If a command is rejected on business grounds, then the
   framework shall **not** present it as a retryable error, so the runtime does not retry a
   refusal.

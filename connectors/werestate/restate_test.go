@@ -414,3 +414,46 @@ func TestPhaseOneScopeHasNoEffectRouting(t *testing.T) {
 	assert.True(t, hasLoad, "load handler must be registered")
 	assert.Len(t, handlers, 2, "phase 1 exposes only execute and load; no effect-routing handlers")
 }
+
+// quotaExceededError is a typed declared error implementing
+// we.ServiceErrorContract WITHOUT being a we.Rejection: the boundary must
+// frame any contract implementation, not just the generic rejection type.
+type quotaExceededError struct {
+	Limit int64
+	Used  int64
+}
+
+func (e quotaExceededError) Error() string {
+	return fmt.Sprintf("quota exceeded: used %d of %d", e.Used, e.Limit)
+}
+
+func (e quotaExceededError) ToErrorFrame() we.ErrorFrame {
+	return we.ErrorFrame{
+		Code:    "counter.quota-exceeded",
+		Message: e.Error(),
+		Fields: map[string]we.ErrorField{
+			"limit": we.MakeI64Field(e.Limit),
+			"used":  we.MakeI64Field(e.Used),
+		},
+	}
+}
+
+// RESTATE-S3.R2 (generalised) — a typed error implementing
+// we.ServiceErrorContract is framed exactly like the generic rejection:
+// terminal, frame in the message, original error reachable through Unwrap.
+func TestServiceErrorContractMapsToTerminalFrame(t *testing.T) {
+	declared := quotaExceededError{Limit: 100, Used: 250}
+
+	mapped := mapError(fmt.Errorf("dispatch failed: %w", declared))
+	require.Error(t, mapped)
+	require.True(t, restate.IsTerminalError(mapped), "a declared service error must be terminal")
+
+	frame, ok := decodeErrorFrame(mapped.Error())
+	require.True(t, ok, "terminal message must carry an encoded error frame, got %q", mapped.Error())
+	assert.Equal(t, declared.ToErrorFrame(), frame)
+	assert.Equal(t, restate.Code(http.StatusUnprocessableEntity), restate.ErrorCode(mapped))
+
+	var recovered quotaExceededError
+	require.True(t, errors.As(mapped, &recovered), "typed error must stay recoverable through Unwrap")
+	assert.Equal(t, declared, recovered)
+}
