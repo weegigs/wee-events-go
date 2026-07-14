@@ -90,6 +90,12 @@ func TestClientConnectionFailureIsTransportError(t *testing.T) {
 	var transport *TransportError
 	require.True(t, errors.As(err, &transport), "expected *TransportError, got %T: %v", err, err)
 	assert.Equal(t, 0, transport.Status)
+
+	var rejection we.Rejection
+	assert.False(t, errors.As(err, &rejection), "a transport failure must never classify as a declared rejection")
+
+	_, declared := DeclaredError(err)
+	assert.False(t, declared, "a transport failure must not be claimed by DeclaredError")
 }
 
 // A non-2xx response without a frame is a transport failure carrying the
@@ -108,6 +114,12 @@ func TestClientPlainFailureIsTransportError(t *testing.T) {
 	require.True(t, errors.As(err, &transport), "expected *TransportError, got %T: %v", err, err)
 	assert.Equal(t, http.StatusInternalServerError, transport.Status)
 	assert.Contains(t, transport.Message, "store is down")
+
+	var rejection we.Rejection
+	assert.False(t, errors.As(err, &rejection), "a transport failure must never classify as a declared rejection")
+
+	_, declared := DeclaredError(err)
+	assert.False(t, declared, "a transport failure must not be claimed by DeclaredError")
 }
 
 // An undecodable success body is a transport failure too: the service answered
@@ -217,6 +229,12 @@ func TestClientDecoratedPlainFailureStaysTransport(t *testing.T) {
 	require.True(t, errors.As(err, &transport), "expected *TransportError, got %T: %v", err, err)
 	assert.Equal(t, http.StatusInternalServerError, transport.Status)
 	assert.Equal(t, "[500] store is down", transport.Message, "the transport lane must keep the decorated original")
+
+	var rejection we.Rejection
+	assert.False(t, errors.As(err, &rejection), "a transport failure must never classify as a declared rejection")
+
+	_, declared := DeclaredError(err)
+	assert.False(t, declared, "a transport failure must not be claimed by DeclaredError")
 }
 
 // insufficientFundsError is a service-specific declared error a caller might
