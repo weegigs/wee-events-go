@@ -45,6 +45,12 @@ func (e *TransportError) Unwrap() error { return e.cause }
 // rejection fallback.
 type FrameDecoder func(we.ErrorFrame) (error, bool)
 
+// maxResponseBytes bounds how much of an ingress response body the client
+// reads, mirroring the intake-side cap (wehttp defaultMaxBodyBytes): a
+// response beyond the cap is a transport failure, never a truncated,
+// half-decoded value.
+const maxResponseBytes = 1 << 20
+
 // Client is the typed boundary handle for a werestate service reached through
 // Restate ingress. It speaks the ingress HTTP API directly because the SDK's
 // ingress client flattens terminal failures into opaque strings; owning the
@@ -125,6 +131,7 @@ func (c *Client) call(ctx context.Context, id we.AggregateId, handler string, bo
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
+	request.Header.Set("Accept", "application/json")
 
 	response, err := c.http.Do(request)
 	if err != nil {
@@ -132,9 +139,14 @@ func (c *Client) call(ctx context.Context, id we.AggregateId, handler string, bo
 	}
 	defer func() { _ = response.Body.Close() }()
 
-	data, err := io.ReadAll(response.Body)
+	// Read one byte past the cap so an at-cap body is distinguishable from an
+	// over-cap one without buffering an unbounded response.
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
 		return EntityResponse{}, &TransportError{Status: response.StatusCode, Message: "unreadable response body: " + err.Error(), cause: err}
+	}
+	if len(data) > maxResponseBytes {
+		return EntityResponse{}, &TransportError{Status: response.StatusCode, Message: fmt.Sprintf("response body exceeds %d byte cap", maxResponseBytes)}
 	}
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -306,4 +307,75 @@ func TestClientNilClaimedDecoderFallsBackToRejection(t *testing.T) {
 	var recovered we.Rejection
 	require.True(t, errors.As(err, &recovered), "expected we.Rejection, got %T: %v", err, err)
 	assert.Equal(t, "order.closed", recovered.Code)
+}
+
+// Every ingress request declares the response format it can decode.
+func TestClientSendsAcceptHeader(t *testing.T) {
+	var gotAccept string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAccept = r.Header.Get("Accept")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(entityBody(t))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "counter")
+	_, err := client.Load(context.Background(), clientAggregateId(t))
+	require.NoError(t, err)
+
+	assert.Equal(t, "application/json", gotAccept)
+}
+
+// paddedEntityBody returns a valid entity body padded with a filler state
+// field to exactly size bytes. The filler is plain ASCII so the JSON length
+// grows byte-for-byte with the filler content.
+func paddedEntityBody(t *testing.T, size int) []byte {
+	t.Helper()
+	build := func(filler string) []byte {
+		body, err := json.Marshal(EntityResponse{
+			State:    map[string]any{"filler": filler},
+			ID:       we.EncodedAggregateId("counter:client-1"),
+			Type:     we.EntityType("counter"),
+			Revision: we.Revision("00000000000000000003"),
+		})
+		require.NoError(t, err)
+		return body
+	}
+	base := build("")
+	require.LessOrEqual(t, len(base), size, "cap too small to build a padded body")
+	padded := build(strings.Repeat("x", size-len(base)))
+	require.Len(t, padded, size)
+	return padded
+}
+
+// A response body over the cap is a transport failure — never a truncated,
+// half-decoded value.
+func TestClientOversizedBodyIsTransportError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(paddedEntityBody(t, maxResponseBytes+1))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "counter")
+	_, err := client.Load(context.Background(), clientAggregateId(t))
+
+	var transport *TransportError
+	require.True(t, errors.As(err, &transport), "expected *TransportError, got %T: %v", err, err)
+	assert.Contains(t, transport.Message, "response body exceeds")
+}
+
+// A body exactly at the cap still decodes: the bound is a ceiling, not an
+// off-by-one truncation.
+func TestClientBodyAtCapStillDecodes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(paddedEntityBody(t, maxResponseBytes))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "counter")
+	response, err := client.Load(context.Background(), clientAggregateId(t))
+	require.NoError(t, err)
+	assert.Equal(t, we.EncodedAggregateId("counter:client-1"), response.ID)
 }
