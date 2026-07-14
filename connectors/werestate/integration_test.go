@@ -249,11 +249,13 @@ func TestRejectionRoundTripsAcrossBoundary(t *testing.T) {
 // declaredReport is what the orchestrator hands back to the test: the
 // classification result of an in-handler service-to-service failure.
 type declaredReport struct {
-	Declared   bool   `json:"declared"`
-	Code       string `json:"code"`
-	Balance    int64  `json:"balance"`
-	Requested  int64  `json:"requested"`
-	RawMessage string `json:"rawMessage"`
+	Declared     bool   `json:"declared"`
+	Code         string `json:"code"`
+	Balance      int64  `json:"balance"`
+	HasBalance   bool   `json:"hasBalance"`
+	Requested    int64  `json:"requested"`
+	HasRequested bool   `json:"hasRequested"`
+	RawMessage   string `json:"rawMessage"`
 }
 
 // orchestratorDefinition registers a plain Restate service whose handler
@@ -299,8 +301,8 @@ func orchestratorDefinition() restate.ServiceDefinition {
 				var rejection we.Rejection
 				if errors.As(declared, &rejection) {
 					report.Code = rejection.Code
-					report.Balance, _ = rejection.Fields["balance"].I64()
-					report.Requested, _ = rejection.Fields["requested"].I64()
+					report.Balance, report.HasBalance = rejection.Fields["balance"].I64()
+					report.Requested, report.HasRequested = rejection.Fields["requested"].I64()
 				}
 				return report, nil
 			}))
@@ -326,7 +328,9 @@ func TestDeclaredErrorRecoversAcrossServiceToServiceCall(t *testing.T) {
 	assert.True(t, report.Declared,
 		"the in-handler failure must classify as declared; raw propagated message: %q", report.RawMessage)
 	assert.Equal(t, "account.insufficient-funds", report.Code)
+	assert.True(t, report.HasBalance, "the rejection must carry the balance field across the boundary")
 	assert.Equal(t, int64(0), report.Balance)
+	assert.True(t, report.HasRequested, "the rejection must carry the requested field across the boundary")
 	assert.Equal(t, int64(100), report.Requested)
 	assert.Contains(t, report.RawMessage, errorFramePrefix,
 		"the propagated terminal message must carry the encoded frame")

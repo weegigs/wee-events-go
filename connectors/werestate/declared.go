@@ -49,6 +49,11 @@ func declaredFromMessage(message string, decoders []FrameDecoder) (error, bool) 
 //		var rejection we.Rejection
 //		if errors.As(declared, &rejection) { ... }
 //	}
+//
+// Classify the SDK call's error before wrapping it (e.g. with
+// fmt.Errorf("...: %w", err)): classification runs on err.Error() alone, so a
+// wrapped error's message no longer carries the frame at position 0 and the
+// declared outcome silently degrades to (nil, false).
 func DeclaredError(err error, decoders ...FrameDecoder) (error, bool) {
 	if err == nil {
 		return nil, false

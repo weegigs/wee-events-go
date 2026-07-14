@@ -381,6 +381,7 @@ func TestClientOversizedBodyIsTransportError(t *testing.T) {
 	var transport *TransportError
 	require.True(t, errors.As(err, &transport), "expected *TransportError, got %T: %v", err, err)
 	assert.Contains(t, transport.Message, "response body exceeds")
+	assert.Equal(t, http.StatusOK, transport.Status, "the httptest server answered 200 with an oversized body")
 }
 
 // A body exactly at the cap still decodes: the bound is a ceiling, not an

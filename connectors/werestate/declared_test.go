@@ -99,6 +99,8 @@ func TestDeclaredErrorFallsBackToRejection(t *testing.T) {
 	require.True(t, errors.As(declared, &recovered))
 	assert.Equal(t, "order.closed", recovered.Code)
 	assert.Equal(t, "order is closed", recovered.Message)
+	assert.Equal(t, map[string]we.ErrorField{}, recovered.Fields,
+		"a nil-fields rejection round-trips with an empty (non-nil) fields map: the frame codec always emits \"fields\":{}")
 }
 
 // A message without a frame is the transport lane: not declared, no error
