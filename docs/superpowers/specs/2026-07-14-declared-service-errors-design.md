@@ -150,10 +150,14 @@ function. Two entry points use it:
   serves any holder of a terminal-error message (e.g. a Temporal activity
   that received a propagated failure string).
 
-Decoration stripping (`stripIngressDecoration`) is applied defensively in
-both lanes: the runtime provably decorates at the ingress edge, and the
-service-to-service integration test (below) establishes empirically what it
-does between services; stripping tolerates both presence and absence.
+Decoration stripping (`stripRuntimeDecoration`) is applied defensively in
+both lanes and iterates: the runtime decorates a terminal error's message
+with a `"[<code>] "` prefix once per edge — observed once at ingress and
+twice on the service-to-service path (`"[422] [422] wee-events:error-frame+json:…"`,
+2026-07-14 integration run) — so the strip greedily removes leading
+decorations before frame decode. Greedy stripping cannot misclassify:
+classification changes only when a frame is revealed, and the transport lane
+always keeps the original message. The shared frame codec stays byte-strict.
 
 Decoder semantics are shared verbatim with the ingress client: consulted in
 order, first claim wins, a claiming decoder must return a non-nil error, and
