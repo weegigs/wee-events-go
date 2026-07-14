@@ -76,7 +76,8 @@ func startEnvironment(t *testing.T) (*ingress.Client, string, *memoryStore) {
 	accountSvc := NewService(account.Service(store))
 	restateSrv := server.NewRestate().
 		Bind(svc.Definition(serviceName)).
-		Bind(accountSvc.Definition("account"))
+		Bind(accountSvc.Definition("account")).
+		Bind(orchestratorDefinition())
 	restateHandler, err := restateSrv.Handler()
 	require.NoError(t, err)
 
@@ -243,4 +244,90 @@ func TestRejectionRoundTripsAcrossBoundary(t *testing.T) {
 
 	var transport *TransportError
 	assert.False(t, errors.As(err, &transport), "a declared rejection must not classify as transport")
+}
+
+// declaredReport is what the orchestrator hands back to the test: the
+// classification result of an in-handler service-to-service failure.
+type declaredReport struct {
+	Declared   bool   `json:"declared"`
+	Code       string `json:"code"`
+	Balance    int64  `json:"balance"`
+	Requested  int64  `json:"requested"`
+	RawMessage string `json:"rawMessage"`
+}
+
+// orchestratorDefinition registers a plain Restate service whose handler
+// calls the account virtual object INSIDE a handler context — the
+// service-to-service lane, distinct from ingress — and classifies the
+// failure with DeclaredError. It reports the classification as its success
+// result so the raw propagated message survives for the test to inspect.
+func orchestratorDefinition() restate.ServiceDefinition {
+	return restate.NewService("orchestrator").
+		Handler("overdraw", restate.NewServiceHandler(
+			func(ctx restate.Context, accountKey string) (declaredReport, error) {
+				open, err := json.Marshal(account.Open{Owner: "kevin"})
+				if err != nil {
+					return declaredReport{}, err
+				}
+				if _, err := restate.Object[EntityResponse](ctx, "account", accountKey, "execute").
+					Request(we.RemoteCommand{
+						CommandName: we.CommandNameOf(account.Open{}),
+						Payload:     we.Data{Encoding: "application/json", Data: open},
+					}); err != nil {
+					return declaredReport{}, err
+				}
+
+				withdraw, err := json.Marshal(account.Withdraw{Amount: 100})
+				if err != nil {
+					return declaredReport{}, err
+				}
+				_, err = restate.Object[EntityResponse](ctx, "account", accountKey, "execute").
+					Request(we.RemoteCommand{
+						CommandName: we.CommandNameOf(account.Withdraw{}),
+						Payload:     we.Data{Encoding: "application/json", Data: withdraw},
+					})
+				if err == nil {
+					return declaredReport{}, restate.TerminalError(errors.New("overdraw unexpectedly succeeded"), http.StatusInternalServerError)
+				}
+
+				report := declaredReport{RawMessage: err.Error()}
+				declared, ok := DeclaredError(err)
+				report.Declared = ok
+				if !ok {
+					return report, nil
+				}
+				var rejection we.Rejection
+				if errors.As(declared, &rejection) {
+					report.Code = rejection.Code
+					report.Balance, _ = rejection.Fields["balance"].I64()
+					report.Requested, _ = rejection.Fields["requested"].I64()
+				}
+				return report, nil
+			}))
+}
+
+// The service-to-service lane, end to end: a declared error raised inside
+// service B's handler crosses the runtime to service A's in-handler call as
+// a terminal error carrying the frame, and DeclaredError recovers it with
+// its fields intact. RawMessage documents empirically what decoration the
+// runtime applies on this path: the observed message is DOUBLY decorated —
+// "[422] [422] wee-events:error-frame+json:{...}" — one "[<code>] " prefix
+// per runtime/SDK hop (versus the single prefix on the ingress lane).
+// DeclaredError strips leading decorations iteratively, so the frame-prefix
+// assertion holds regardless of hop count.
+func TestDeclaredErrorRecoversAcrossServiceToServiceCall(t *testing.T) {
+	client, _, _ := startEnvironment(t)
+	ctx := context.Background()
+
+	report, err := ingress.Service[string, declaredReport](client, "orchestrator", "overdraw").
+		Request(ctx, "account:orch-1")
+	require.NoError(t, err, "the orchestrator handler itself must succeed")
+
+	assert.True(t, report.Declared,
+		"the in-handler failure must classify as declared; raw propagated message: %q", report.RawMessage)
+	assert.Equal(t, "account.insufficient-funds", report.Code)
+	assert.Equal(t, int64(0), report.Balance)
+	assert.Equal(t, int64(100), report.Requested)
+	assert.Contains(t, report.RawMessage, errorFramePrefix,
+		"the propagated terminal message must carry the encoded frame")
 }
