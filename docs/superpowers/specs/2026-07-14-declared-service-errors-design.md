@@ -102,7 +102,29 @@ A frame that fails to encode (zero-value `ErrorField`) surfaces as an
 internal-server terminal error, exactly as the rejection path handles it
 today.
 
-### 2. Client: one classification pipeline, two entry points
+### 2. Contract vs. convenience: where the normative surface ends
+
+The cross-language contract ends at the frame. Normative and shared with
+every wee-events implementation:
+
+- the `wee-events:error-frame+json:` prefix discriminator on the terminal
+  message, and
+- the `we.ErrorFrame` shape — stable code, message, closed scalar field set.
+
+Everything past frame decode is the calling application's territory. How a
+caller turns a decoded frame into something it can use — a typed error, an
+enum variant, a discriminated union, a plain match on the code — is entirely
+down to that application and its language's idiom. Standard client libraries
+for decoding are worth having (this section specifies the Go one), but a
+library's mapping convention is a convenience, never part of the contract:
+the TypeScript or Rust rendering of the same frame owes nothing to the shape
+chosen here.
+
+### 3. Go client library: one classification pipeline, two entry points
+
+Within that framing, this is the Go convention: consult decoders registered
+per calling application, fall back to the generic `we.Rejection` when none
+claims the frame.
 
 The pipeline that exists inside `Client.classifyFailure` — strip ingress
 decoration, decode the frame, consult registered `FrameDecoder`s in order,
@@ -136,12 +158,14 @@ does between services; stripping tolerates both presence and absence.
 Decoder semantics are shared verbatim with the ingress client: consulted in
 order, first claim wins, a claiming decoder must return a non-nil error, and
 an unclaimed frame falls back to `we.Rejection` carrying the frame's code,
-message, and fields. The generic fallback is the guaranteed floor of the
-contract — typed decoding is opt-in refinement, reconciled per team.
+message, and fields. Within the Go library the generic fallback is the
+guaranteed floor — typed decoding is opt-in refinement, reconciled per team.
+This registry-plus-fallback shape is the Go idiom for the mapping, nothing
+more; other languages choose their own.
 
 `DeclaredError(nil, ...)` returns `(nil, false)`.
 
-### 3. Ingress client hardening
+### 4. Ingress client hardening
 
 - Send `Accept: application/json` on every ingress request.
 - Bound response-body reads with `io.LimitReader`, using the same limit value
