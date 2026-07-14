@@ -12,19 +12,22 @@ import (
 
 // framedTerminalError builds an error whose message is an encoded frame —
 // the shape an SDK service-to-service call surfaces when the callee raised a
-// declared error.
-func framedTerminalError(t *testing.T, rejection we.Rejection, decorated bool) error {
+// declared error. decorations is the number of "[422] " prefixes the runtime
+// prepended: one at the ingress edge, one per service-to-service hop.
+func framedTerminalError(t *testing.T, rejection we.Rejection, decorations int) error {
 	t.Helper()
 	message, err := encodeErrorFrame(rejection.ToErrorFrame())
 	require.NoError(t, err)
-	if decorated {
+	for range decorations {
 		message = "[422] " + message
 	}
 	return errors.New(message)
 }
 
-// DeclaredError recovers the declared error from a framed terminal message,
-// with or without the runtime's "[<code>] " decoration.
+// DeclaredError recovers the declared error from a framed terminal message
+// regardless of how many "[<code>] " decorations the runtime applied: none,
+// one (the ingress edge), or two (the observed service-to-service shape,
+// "[422] [422] wee-events:error-frame+json:{...}").
 func TestDeclaredErrorDecodesFrame(t *testing.T) {
 	rejection := we.MakeRejection("account.insufficient-funds", "insufficient funds",
 		map[string]we.ErrorField{
@@ -33,14 +36,15 @@ func TestDeclaredErrorDecodesFrame(t *testing.T) {
 		})
 
 	for _, tc := range []struct {
-		name      string
-		decorated bool
+		name        string
+		decorations int
 	}{
-		{name: "undecorated", decorated: false},
-		{name: "decorated", decorated: true},
+		{name: "undecorated", decorations: 0},
+		{name: "single decoration", decorations: 1},
+		{name: "doubled decoration", decorations: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			declared, ok := DeclaredError(framedTerminalError(t, rejection, tc.decorated))
+			declared, ok := DeclaredError(framedTerminalError(t, rejection, tc.decorations))
 			require.True(t, ok, "a framed message must classify as declared")
 
 			var recovered we.Rejection
@@ -58,7 +62,7 @@ func TestDeclaredErrorRespectsDecoderOrder(t *testing.T) {
 	first := errors.New("claimed by first")
 	second := errors.New("claimed by second")
 
-	declared, ok := DeclaredError(framedTerminalError(t, rejection, false),
+	declared, ok := DeclaredError(framedTerminalError(t, rejection, 0),
 		func(we.ErrorFrame) (error, bool) { return first, true },
 		func(we.ErrorFrame) (error, bool) { return second, true },
 	)
@@ -71,7 +75,7 @@ func TestDeclaredErrorRespectsDecoderOrder(t *testing.T) {
 func TestDeclaredErrorNilClaimFallsThrough(t *testing.T) {
 	rejection := we.MakeRejection("order.closed", "order is closed", nil)
 
-	declared, ok := DeclaredError(framedTerminalError(t, rejection, false),
+	declared, ok := DeclaredError(framedTerminalError(t, rejection, 0),
 		func(we.ErrorFrame) (error, bool) { return nil, true },
 	)
 	require.True(t, ok)
@@ -86,7 +90,7 @@ func TestDeclaredErrorNilClaimFallsThrough(t *testing.T) {
 func TestDeclaredErrorFallsBackToRejection(t *testing.T) {
 	rejection := we.MakeRejection("order.closed", "order is closed", nil)
 
-	declared, ok := DeclaredError(framedTerminalError(t, rejection, false),
+	declared, ok := DeclaredError(framedTerminalError(t, rejection, 0),
 		func(we.ErrorFrame) (error, bool) { return nil, false },
 	)
 	require.True(t, ok)
@@ -98,11 +102,21 @@ func TestDeclaredErrorFallsBackToRejection(t *testing.T) {
 }
 
 // A message without a frame is the transport lane: not declared, no error
-// synthesised.
+// synthesised — with or without runtime decoration in front of it.
 func TestDeclaredErrorNonFrameIsNotDeclared(t *testing.T) {
-	declared, ok := DeclaredError(errors.New("connection reset by peer"))
-	assert.False(t, ok, "a plain error must not classify as declared")
-	assert.Nil(t, declared)
+	for _, tc := range []struct {
+		name    string
+		message string
+	}{
+		{name: "undecorated", message: "connection reset by peer"},
+		{name: "doubled decoration", message: "[500] [500] connection reset by peer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			declared, ok := DeclaredError(errors.New(tc.message))
+			assert.False(t, ok, "a plain error must not classify as declared")
+			assert.Nil(t, declared)
+		})
+	}
 }
 
 // A prefixed-but-corrupt frame payload is not half-decoded; it stays in the

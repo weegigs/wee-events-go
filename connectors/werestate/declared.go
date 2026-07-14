@@ -19,7 +19,7 @@ import (
 // owed nothing by other language clients (see
 // docs/superpowers/specs/2026-07-14-declared-service-errors-design.md).
 func declaredFromMessage(message string, decoders []FrameDecoder) (error, bool) {
-	frame, ok := decodeErrorFrame(stripIngressDecoration(message))
+	frame, ok := decodeErrorFrame(stripRuntimeDecoration(message))
 	if !ok {
 		return nil, false
 	}
@@ -56,24 +56,42 @@ func DeclaredError(err error, decoders ...FrameDecoder) (error, bool) {
 	return declaredFromMessage(err.Error(), decoders)
 }
 
-// stripIngressDecoration removes the "[<code>] " prefix the Restate runtime
-// prepends to a terminal error's message when rendering the ingress failure
-// body. The decoration is a transport artifact of the runtime edge — it is
-// not part of the error-frame contract, so it is stripped defensively in
-// both classification lanes rather than tolerated in the shared frame codec.
-func stripIngressDecoration(message string) string {
+// stripRuntimeDecoration removes the leading "[<code>] " prefixes the Restate
+// runtime / SDK prepend to a terminal error's message: once when rendering
+// the ingress failure body, and once per service-to-service hop (observed
+// empirically as a doubled prefix on one hop's propagation:
+// "[422] [422] wee-events:error-frame+json:{...}"). The decoration is a
+// transport artifact of the runtime edge — it is not part of the error-frame
+// contract, so it is stripped defensively (and greedily, one prefix per hop)
+// in the classification lanes rather than tolerated in the shared frame
+// codec. Greedy stripping cannot misclassify: classification only changes
+// when a frame is revealed, and the transport lane always keeps the ORIGINAL
+// undecorated message.
+func stripRuntimeDecoration(message string) string {
+	for {
+		stripped, ok := stripOneDecoration(message)
+		if !ok {
+			return message
+		}
+		message = stripped
+	}
+}
+
+// stripOneDecoration removes a single leading "[<digits>] " prefix, reporting
+// whether one was present.
+func stripOneDecoration(message string) (string, bool) {
 	rest, ok := strings.CutPrefix(message, "[")
 	if !ok {
-		return message
+		return message, false
 	}
 	digits, undecorated, found := strings.Cut(rest, "] ")
 	if !found || digits == "" {
-		return message
+		return message, false
 	}
 	for _, r := range digits {
 		if r < '0' || r > '9' {
-			return message
+			return message, false
 		}
 	}
-	return undecorated
+	return undecorated, true
 }
