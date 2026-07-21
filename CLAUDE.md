@@ -32,19 +32,31 @@ just fix
 
 # Update all dependencies to latest and tidy
 just update-deps
+
+# Validate everything: compile all build tags, lint, the full test tree
+# (Docker-backed store suites included, packages serialized), and the Restate
+# connector integration suite — the full local completeness gate
+just verify
 ```
 
 Ad-hoc Go commands pick up the pinned toolchain via mise, e.g.
 `mise exec -- go test -v ./we/...`.
 
 ### Running Integration Tests
-Integration tests require Docker containers for KurrentDB and NATS:
+Integration tests require Docker. There are two suites:
 
 ```bash
+# Store backends (testcontainers; compose services in local/docker-compose.yml
+# support local development, not the tests)
 just test-integration
+
+# Restate connector (testcontainers against restatedev/restate:latest,
+# deliberately unpinned so the suite tracks the current runtime)
+just test-integration-restate
 ```
 
-This starts the services in `local/docker-compose.yml` and runs `go test -v ./stores/...`.
+`just verify` covers both: the store suites run inside its serialized full-tree
+test pass, and the Restate suite runs as its own step.
 
 ## Architecture Overview
 

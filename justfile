@@ -37,6 +37,23 @@ test-integration:
     docker compose -f local/docker-compose.yml up -d
     go test -v ./stores/...
 
+# Run the Restate connector integration tests (testcontainers; requires Docker)
+test-integration-restate:
+    go test -tags integration -timeout 20m -v ./connectors/werestate/
+
+# Validate everything locally: compile all build tags, lint, the full test
+# tree (includes the Docker-backed store suites), and the Restate connector
+# integration suite. Requires Docker; green means complete. Packages run
+# serially (-p 1, the repo convention for Docker-heavy runs): the store suites
+# each spin containers, and parallel packages contend on the Docker daemon
+# hard enough to blow readiness deadlines.
+verify:
+    go build ./...
+    go vet -tags integration ./...
+    just lint
+    go test -p 1 -v ./...
+    just test-integration-restate
+
 # Run event-store benchmarks for local stores (no Docker)
 bench filter='^(BenchmarkMemory|BenchmarkSqlite(InMemory|Local))':
     go test -run '^$' -bench '{{filter}}' -benchmem -timeout 30m ./we ./stores/sqlite
